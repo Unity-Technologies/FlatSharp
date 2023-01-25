@@ -1,0 +1,15 @@
+build:
+  name: Build
+  agent:
+    type: Unity::VM
+    image: burst/burst-base:1.0.8-1195360
+    flavor: b1.xlarge
+  commands:
+    - dotnet build --configuration Release src\FlatSharp.sln
+    - dotnet test --configuration Release src\FlatSharp.sln
+  timeout: 30
+  artifacts:
+    reported_artifacts:
+      paths:
+        - src\FlatSharp\bin\Release\netstandard2.1
+        - src\FlatSharp.Compiler\bin\Release\net6.0
