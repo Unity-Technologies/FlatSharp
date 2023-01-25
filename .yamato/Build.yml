@@ -5,7 +5,7 @@ build:
     image: burst/burst-base:1.0.8-1195360
     flavor: b1.xlarge
   commands:
-    - choco install dotnet
+    - gsudo choco install dotnet
     - dotnet build --configuration Release src\FlatSharp.sln
     - dotnet test --configuration Release src\FlatSharp.sln
   timeout: 30
