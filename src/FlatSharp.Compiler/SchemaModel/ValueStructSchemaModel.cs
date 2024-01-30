@@ -101,7 +101,7 @@ public class ValueStructSchemaModel : BaseSchemaModel
 
     protected override void OnValidate()
     {
-        // TODO   
+        // TODO
     }
 
     protected override void OnWriteCode(CodeWriter writer, CompileContext context)
@@ -134,7 +134,7 @@ public class ValueStructSchemaModel : BaseSchemaModel
         }
 
         writer.AppendLine($"[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Explicit{size})]");
-        writer.AppendLine($"public partial struct {this.Name}");
+        writer.AppendLine($"{Helpers.Visibility(context)} partial struct {this.Name}");
         using (writer.WithBlock())
         {
             foreach (var field in this.fields)

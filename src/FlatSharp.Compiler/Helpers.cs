@@ -31,4 +31,14 @@ public static class Helpers
 
         return (name.Substring(0, lastIndex), name.Substring(lastIndex + 1));
     }
+
+    public static string Visibility(CompileContext context)
+    {
+        if (context.Options.InternalTypes)
+        {
+            return "internal";
+        }
+
+        return "public";
+    }
 }

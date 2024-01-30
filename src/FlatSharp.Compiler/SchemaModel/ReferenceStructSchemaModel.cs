@@ -56,7 +56,7 @@ public class ReferenceStructSchemaModel : BaseReferenceTypeSchemaModel
 
     protected override void OnValidate()
     {
-        // TODO   
+        // TODO
     }
 
     protected override void EmitDefaultConstructorFieldInitialization(PropertyFieldModel model, CodeWriter writer, CompileContext context)
@@ -75,7 +75,7 @@ public class ReferenceStructSchemaModel : BaseReferenceTypeSchemaModel
         writer.AppendSummaryComment(this.Documentation);
         writer.AppendLine(attribute);
         writer.AppendLine("[System.Runtime.CompilerServices.CompilerGenerated]");
-        writer.AppendLine($"public partial class {this.Name}");
+        writer.AppendLine($"{Helpers.Visibility(context)} partial class {this.Name}");
         writer.AppendLine($"    : object");
 
         if (context.Options.GeneratePoolableObjects == true)

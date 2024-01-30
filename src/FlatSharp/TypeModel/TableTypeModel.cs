@@ -110,7 +110,7 @@ public class TableTypeModel : RuntimeTypeModel
     public TableMemberModel? KeyMember { get; private set; }
 
     /// <summary>
-    /// Gets the maximum size of a table assuming all members are populated include the vtable offset. 
+    /// Gets the maximum size of a table assuming all members are populated include the vtable offset.
     /// Does not consider alignment of the table, but does consider worst-case alignment of the members.
     /// </summary>
     internal int NonPaddedMaxTableInlineSize
@@ -364,11 +364,6 @@ public class TableTypeModel : RuntimeTypeModel
             throw new InvalidFlatBufferDefinitionException($"Can't create type model from type {typeName} its base class is not System.Object.");
         }
 
-        if (!type.IsPublic && !type.IsNestedPublic)
-        {
-            throw new InvalidFlatBufferDefinitionException($"Can't create type model from type {typeName} because it is not public.");
-        }
-
         var defaultCtor =
             type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
             .Where(c => c.GetParameters().Length == 0)
@@ -468,11 +463,11 @@ public class TableTypeModel : RuntimeTypeModel
         }
 
         // Pack according to the following:
-        // Rule 1: Bigger alignments come first. 
-        //   The biggest (practical) alignment is 8 bytes. It 
-        //   is beneficial to put these first because tables are 
-        //   guaranteed to be 4-byte aligned, so we have a 50% 
-        //   chance of 0 padding and a 50% chance of 4 bytes of 
+        // Rule 1: Bigger alignments come first.
+        //   The biggest (practical) alignment is 8 bytes. It
+        //   is beneficial to put these first because tables are
+        //   guaranteed to be 4-byte aligned, so we have a 50%
+        //   chance of 0 padding and a 50% chance of 4 bytes of
         //   padding, which isn't bad.
         // Rule 2: Within an alignment group, prefer smaller sized items.
         //   We are attempting to minimize padding within an alignment group.
@@ -631,7 +626,7 @@ $@"
 
         return $@"
             var {OffsetVariableName(index, i)} = tableStart;
-            {condition} 
+            {condition}
             {{
                 {prepareBlock}
                 {inlineSerialize}
@@ -662,10 +657,10 @@ $@"
                 {context.SerializationContextVariableName}.{nameof(SerializationContext.AddPostSerializeAction)}(
                     (tempSpan, ctx) =>
                     {nameof(SortedVectorHelpersInternal)}.{nameof(SortedVectorHelpersInternal.SortVector)}(
-                        tempSpan, 
-                        {OffsetVariableName(index, 0)}, 
-                        {keyMember.Index}, 
-                        {inlineSize}, 
+                        tempSpan,
+                        {OffsetVariableName(index, 0)},
+                        {keyMember.Index},
+                        {inlineSize},
                         new {CSharpHelpers.GetCompilableTypeName(spanComparerType)}({keyMember.DefaultValueLiteral})));";
         }
 
@@ -768,7 +763,7 @@ $@"
             };
 
             string statement =
-$@" 
+$@"
                 if ({itemModel.GetNotEqualToDefaultValueLiteralExpression(variableName, member.DefaultValueLiteral)})
                 {{
                     runningSum += {itemContext.GetMaxSizeInvocation(itemModel.ClrType)};

@@ -127,8 +127,8 @@ public class RpcServiceSchemaModel : BaseSchemaModel
             }
 
 
-            this.DefineServerBaseClass(writer, methods);
-            this.DefineClientClass(writer, methods);
+            this.DefineServerBaseClass(writer, methods, context);
+            this.DefineClientClass(writer, methods, context);
         }
     }
 
@@ -191,13 +191,13 @@ public class RpcServiceSchemaModel : BaseSchemaModel
         return methodDefinitionMap;
     }
 
-    private void DefineServerBaseClass(CodeWriter writer, Dictionary<string, string> methodNameMap)
+    private void DefineServerBaseClass(CodeWriter writer, Dictionary<string, string> methodNameMap, CompileContext context)
     {
         string baseClassName = $"{this.Name}ServerBase";
 
         writer.AppendSummaryComment(this.service.Documentation);
         writer.AppendLine($"[{GrpcCore}.BindServiceMethod(typeof({this.Name}), \"BindService\")]");
-        writer.AppendLine($"public abstract partial class {baseClassName}");
+        writer.AppendLine($"{Helpers.Visibility(context)} abstract partial class {baseClassName}");
         using (writer.WithBlock())
         {
             foreach (var call in this.calls)
@@ -319,9 +319,8 @@ public class RpcServiceSchemaModel : BaseSchemaModel
         }
     }
 
-    private void DefineClientClass(
-        CodeWriter writer,
-        Dictionary<string, string> methodMapping)
+    private void DefineClientClass(CodeWriter writer,
+        Dictionary<string, string> methodMapping, CompileContext context)
     {
         string clientClassName = $"{this.Name}Client";
         string interfaceDeclaration = string.Empty;
@@ -331,7 +330,7 @@ public class RpcServiceSchemaModel : BaseSchemaModel
         }
 
         writer.AppendSummaryComment(this.service.Documentation);
-        writer.AppendLine($"public partial class {clientClassName} : {GrpcCore}.ClientBase<{clientClassName}>{interfaceDeclaration}");
+        writer.AppendLine($"{Helpers.Visibility(context)} partial class {clientClassName} : {GrpcCore}.ClientBase<{clientClassName}>{interfaceDeclaration}");
         using (writer.WithBlock())
         {
             this.DefineClientConstructors(writer, clientClassName);

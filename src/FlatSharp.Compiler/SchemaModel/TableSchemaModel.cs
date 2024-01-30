@@ -51,7 +51,7 @@ public class TableSchemaModel : BaseReferenceTypeSchemaModel
 
     protected override void OnValidate()
     {
-        // TODO   
+        // TODO
     }
 
     protected override void EmitExtraData(CodeWriter writer, CompileContext context)
@@ -94,7 +94,7 @@ public class TableSchemaModel : BaseReferenceTypeSchemaModel
         writer.AppendSummaryComment(this.Documentation);
         writer.AppendLine(attribute);
         writer.AppendLine("[System.Runtime.CompilerServices.CompilerGenerated]");
-        writer.AppendLine($"public partial class {this.Name}");
+        writer.AppendLine($"{Helpers.Visibility(context)} partial class {this.Name}");
 
         using (writer.IncreaseIndent())
         {

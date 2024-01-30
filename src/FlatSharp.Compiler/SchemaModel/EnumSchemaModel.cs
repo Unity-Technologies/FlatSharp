@@ -69,7 +69,7 @@ public class EnumSchemaModel : BaseSchemaModel
         }
 
         writer.AppendLine($"[FlatBufferEnum(typeof({this.underlyingType}))]");
-        writer.AppendLine($"public enum {this.Name} : {this.underlyingType}");
+        writer.AppendLine($"{Helpers.Visibility(context)} enum {this.Name} : {this.underlyingType}");
         using (writer.WithBlock())
         {
             foreach (var item in this.nameValueMap.OrderBy(x => x.Value.Value))

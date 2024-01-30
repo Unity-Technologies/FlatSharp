@@ -123,7 +123,7 @@ public class ValueStructTypeModel : RuntimeTypeModel
 
             propertyStatements.Add($@"
                 item.{member.accessor} = {parts.@namespace}.{parts.className}.{parts.methodName}<{context.InputBufferTypeName}>(
-                    {context.InputBufferVariableName}, 
+                    {context.InputBufferVariableName},
                     {context.OffsetVariableName} + {member.offset},
                     {context.RemainingDepthVariableName});");
         }
@@ -178,7 +178,7 @@ public class ValueStructTypeModel : RuntimeTypeModel
 
             propertyStatements.Add(fieldContext.GetSerializeInvocation(member.model.ClrType) + ";");
         }
-        
+
         string body;
         string slice = $"Span<byte> sizedSpan = {context.SpanVariableName}.Slice({context.OffsetVariableName}, {this.inlineSize});";
         if (this.CanMarshalOnSerialize && context.Options.EnableValueStructMemoryMarshalDeserialization)
@@ -301,11 +301,6 @@ public class ValueStructTypeModel : RuntimeTypeModel
             this.inlineSize += propertyModel.PhysicalLayout[0].InlineSize;
         }
 
-        if (!this.ClrType.IsPublic && !this.ClrType.IsNestedPublic)
-        {
-            throw new InvalidFlatBufferDefinitionException($"Can't create type model from type {this.ClrType.GetCompilableTypeName()} because it is not public.");
-        }
-
         this.isExternal = this.ClrType.GetCustomAttribute<ExternalDefinitionAttribute>() is not null;
         this.CanMarshalOnSerialize = false;
         this.CanMarshalOnParse = false;
@@ -331,8 +326,8 @@ public class ValueStructTypeModel : RuntimeTypeModel
 
     /// <summary>
     /// A complex struct is defined as:
-    /// Having nested structs OR having at least 4 members. Not rocket science, but 
-    /// experimentally, performance of MemoryMarshal.Cast overtakes field-by-field serialization 
+    /// Having nested structs OR having at least 4 members. Not rocket science, but
+    /// experimentally, performance of MemoryMarshal.Cast overtakes field-by-field serialization
     /// at around the 4 element mark. This is a heurustic, and can be overridden.
     /// </summary>
     private bool IsComplexStruct()

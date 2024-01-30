@@ -74,7 +74,7 @@ public class ReferenceUnionSchemaModel : BaseSchemaModel
 
         writer.AppendSummaryComment(this.union.Documentation);
         writer.AppendLine("[System.Runtime.CompilerServices.CompilerGenerated]");
-        writer.AppendLine($"public partial class {this.Name} : object, {interfaceName}, IPoolableObject");
+        writer.AppendLine($"{Helpers.Visibility(context)} partial class {this.Name} : object, {interfaceName}, IPoolableObject");
         using (writer.WithBlock())
         {
             // Generate an internal type enum.

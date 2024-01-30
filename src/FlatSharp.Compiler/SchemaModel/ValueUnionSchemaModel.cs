@@ -122,7 +122,7 @@ public class ValueUnionSchemaModel : BaseSchemaModel
 
         writer.AppendSummaryComment(this.union.Documentation);
         writer.AppendLine("[System.Runtime.CompilerServices.CompilerGenerated]");
-        writer.AppendLine($"public {@unsafe} partial struct {this.Name} : {interfaceName}");
+        writer.AppendLine($"{Helpers.Visibility(context)} {@unsafe} partial struct {this.Name} : {interfaceName}");
         using (writer.WithBlock())
         {
             // Generate an internal type enum.

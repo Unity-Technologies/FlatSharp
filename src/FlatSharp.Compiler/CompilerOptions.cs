@@ -43,10 +43,13 @@ public record CompilerOptions
 
     [Option("debug", Hidden = true, Default = false)]
     public bool Debug { get; set; }
-    
+
     [Option("unity-assembly-path", HelpText = "Path to assembly (e.g. UnityEngine.dll) which enables Unity support.")]
     public string? UnityAssemblyPath { get; set; }
 
     [Option("instrument", Hidden = true, Default = false)]
     public bool Instrument { get; set; }
+
+    [Option("internal-types", Default = false, HelpText = "Generate types with internal visibility instead of public.")]
+    public bool InternalTypes { get; set; }
 }
