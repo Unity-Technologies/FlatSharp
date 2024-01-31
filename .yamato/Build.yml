@@ -6,12 +6,12 @@ build:
     flavor: b1.xlarge
   commands:
     - gsudo choco install dotnet-7.0-sdk
-    - dotnet build --configuration Release src/FlatSharp.sln
     - dotnet build --configuration Release src/FlatSharp.Compiler/FlatSharp.Compiler.csproj -f net7.0
+    - dotnet build --configuration Release src/FlatSharp.sln
     - dotnet test --configuration Release src/FlatSharp.sln
   timeout: 30
   artifacts:
     compiler_artifacts:
       paths:
-        - src/FlatSharp/bin/Release
-        - src/FlatSharp.Compiler/bin/Release
+        - src/FlatSharp/bin/Release/**/*
+        - src/FlatSharp.Compiler/bin/Release/**/*
