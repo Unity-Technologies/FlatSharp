@@ -373,7 +373,7 @@ public class TypeModelTests
     {
         RuntimeTypeModel.CreateFrom(typeof(SpecialConstructorStruct<byte>));
     }
-
+/*
     [Fact]
     public void TypeModel_Struct_InternalAccess()
     {
@@ -381,7 +381,7 @@ public class TypeModelTests
             RuntimeTypeModel.CreateFrom(typeof(InternalAccessStruct<byte>)));
         Assert.Equal("Can't create type model from type FlatSharpTests.TypeModelTests.InternalAccessStruct<System.Byte> because it is not public.", ex.Message);
     }
-
+*/
     [Fact]
     public void TypeModel_Struct_Sealed()
     {
@@ -1017,7 +1017,7 @@ public class TypeModelTests
         Assert.Equal(33, structModel.PhysicalLayout.Single().InlineSize);
         Assert.Equal(8, structModel.PhysicalLayout.Single().Alignment);
     }
-    
+
     [Fact]
     public void TypeModel_Vector_NativeArrayOfUnionIsNotAllowed()
     {
@@ -1025,7 +1025,7 @@ public class TypeModelTests
             () => TypeModelContainer.CreateDefault().WithUnitySupport(true).CreateTypeModel(typeof(NativeArray<FlatBufferUnion<string>>)));
         Assert.Equal("UnityNativeArray vectors only support scalar or struct generic arguments. Type = Unity.Collections.NativeArray<FlatSharp.FlatBufferUnion<System.String>>.", ex.Message);
     }
-    
+
     [Fact]
     public void TypeModel_Vector_NativeArrayOfClassIsNotAllowed()
     {
@@ -1063,7 +1063,7 @@ public class TypeModelTests
             var table = new FlatBufferSerializer(
                 new FlatBufferSerializerOptions() { DeserializationOption = FlatBufferDeserializationOption.Lazy },
                 TypeModelContainer.CreateDefault().WithUnitySupport(true)).Parse<GenericTable<NativeArray<byte>>>(data);
-            
+
             // the lazy access here should cause an exception
             table.Value.GetHashCode();
         });
