@@ -116,6 +116,11 @@ public static class MetadataKeys
     public const string UnsafeUnion = "fs_unsafeUnion";
 
     /// <summary>
+    /// Indicates that a property should be generated partially.
+    /// </summary>
+    public const string PartialProperty = "fs_partialProperty";
+
+    /// <summary>
     /// Marks a table field as deprecated. Deprecated fields do not have their values serialized or parsed.
     /// Valid On:
     /// - Table field
@@ -153,6 +158,6 @@ public static class MetadataKeys
 
     public static IEnumerable<string> UnsupportedStandardAttributes => new[]
     {
-        "force_align", "flexbuffer", "hash", "original_order"
+        "force_align", "flexbuffer", "hash", "original_order", "vector64"
     };
 }

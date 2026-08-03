@@ -31,6 +31,7 @@ public class TableSchemaModel : BaseReferenceTypeSchemaModel
         this.AttributeValidator.DeserializationOptionValidator = _ => AttributeValidationResult.Valid;
         this.AttributeValidator.DefaultConstructorValidator = _ => AttributeValidationResult.Valid;
         this.AttributeValidator.ForceWriteValidator = _ => AttributeValidationResult.Valid;
+        this.AttributeValidator.PartialPropertyValidator = _ => AttributeValidationResult.Valid;
     }
 
     public static bool TryCreate(Schema.Schema schema, FlatBufferObject table, [NotNullWhen(true)] out TableSchemaModel? model)
@@ -58,13 +59,12 @@ public class TableSchemaModel : BaseReferenceTypeSchemaModel
     {
         if (this.Attributes.DeserializationOption is not null && context.CompilePass >= CodeWritingPass.SerializerAndRpcGeneration)
         {
-            DefaultMethodNameResolver resolver = new();
             ITypeModel model = context.TypeModelContainer.CreateTypeModel(context.PreviousAssembly!.GetType(this.FullName)!);
-            (string ns, string name) = resolver.ResolveGeneratedSerializerClassName(model);
+            (string ns, string name) = DefaultMethodNameResolver.ResolveGeneratedSerializerClassName(model);
 
             string optionTypeName = typeof(FlatBufferDeserializationOption).GetGlobalCompilableTypeName();
 
-            writer.AppendLine($"public static ISerializer<{this.FullName}> Serializer {{ get; }} = new {ns}.{name}().AsISerializer({optionTypeName}.{this.Attributes.DeserializationOption.Value});");
+            writer.AppendLine($"public static ISerializer<{this.FullName}> Serializer {{ get; }} = new global::{ns}.{name}().AsISerializer({optionTypeName}.{this.Attributes.DeserializationOption.Value});");
 
             writer.AppendLine();
 
@@ -75,7 +75,7 @@ public class TableSchemaModel : BaseReferenceTypeSchemaModel
 
             foreach (var option in new[] { FlatBufferDeserializationOption.Lazy, FlatBufferDeserializationOption.Greedy, FlatBufferDeserializationOption.GreedyMutable, FlatBufferDeserializationOption.Progressive })
             {
-                string staticAbstractMethod = $"static ISerializer<{this.FullName}> {nameof(IFlatBufferSerializable)}<{this.FullName}>.{option}Serializer {{ get; }} = new {ns}.{name}().AsISerializer({optionTypeName}.{option});";
+                string staticAbstractMethod = $"static ISerializer<{this.FullName}> {nameof(IFlatBufferSerializable)}<{this.FullName}>.{option}Serializer {{ get; }} = new global::{ns}.{name}().AsISerializer({optionTypeName}.{option});";
                 writer.BeginPreprocessorIf(CSharpHelpers.Net7PreprocessorVariable, staticAbstractMethod).Flush();
             }
         }
@@ -86,42 +86,44 @@ public class TableSchemaModel : BaseReferenceTypeSchemaModel
         string fileId = string.Empty;
         if (this.Schema.RootTable?.Name == this.FullName && !string.IsNullOrEmpty(this.Schema.FileIdentifier))
         {
-            fileId = $"{nameof(FlatBufferTableAttribute.FileIdentifier)} = \"{this.Schema.FileIdentifier}\"";
+            fileId = $", {nameof(FlatBufferTableAttribute.FileIdentifier)} = \"{this.Schema.FileIdentifier}\"";
         }
 
-        string attribute = $"[FlatBufferTable({fileId})]";
+        string emitSerializer = $"{nameof(FlatBufferTableAttribute.BuildSerializer)} = {(this.Attributes.DeserializationOption is not null ? "true" : "false")}";
+
+        string attribute = $"[FlatBufferTable({emitSerializer}{fileId})]";
 
         writer.AppendSummaryComment(this.Documentation);
         writer.AppendLine(attribute);
+        this.Attributes.EmitAsMetadata(writer);
         writer.AppendLine("[System.Runtime.CompilerServices.CompilerGenerated]");
+        writer.AppendLine($"[System.Diagnostics.DebuggerTypeProxy(\"{this.FullName}\")]");
         writer.AppendLine($"{Helpers.Visibility(context)} partial class {this.Name}");
 
         using (writer.IncreaseIndent())
         {
-            writer.AppendLine(": object");
-
-            if (context.Options.GeneratePoolableObjects == true)
-            {
-                writer.AppendLine(", IPoolableObject");
-            }
+            string delimiter = ":";
 
             if (this.Attributes.DeserializationOption is not null && context.CompilePass >= CodeWritingPass.SerializerAndRpcGeneration)
             {
-                writer.AppendLine($", {nameof(IFlatBufferSerializable)}<{this.FullName}>");
-                writer.AppendLine($", {nameof(IFlatBufferSerializable)}");
+                writer.AppendLine($"{delimiter} {nameof(IFlatBufferSerializable)}<{this.FullName}>");
+                delimiter = ",";
+
+                writer.AppendLine($"{delimiter} {nameof(IFlatBufferSerializable)}");
             }
 
             PropertyFieldModel? keyField = this.properties.Values.SingleOrDefault(x => x.Field.Key);
             if (keyField is not null)
             {
-                writer.AppendLine($", {nameof(ISortableTable<bool>)}<{keyField.GetTypeName()}>");
+                writer.AppendLine($"{delimiter} {nameof(ISortableTable<bool>)}<{keyField.GetTypeName()}>");
+                delimiter = ",";
             }
         }
     }
 
     protected override void EmitDefaultConstructorFieldInitialization(PropertyFieldModel model, CodeWriter writer, CompileContext context)
     {
-        string line = $"this.{model.Field.Name} = {model.GetDefaultValue()};";
+        string line = $"this.{model.FieldName} = {model.GetDefaultValue()};";
 
         if (model.Field.Required)
         {

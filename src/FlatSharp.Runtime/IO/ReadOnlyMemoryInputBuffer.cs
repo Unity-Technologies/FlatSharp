@@ -132,30 +132,15 @@ public struct ReadOnlyMemoryInputBuffer : IInputBuffer
         return this.pointer.memory;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public TItem InvokeLazyParse<TItem>(IGeneratedSerializer<TItem> serializer, in GeneratedSerializerParseArguments arguments)
-        => serializer.ParseLazy(this, in arguments);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public TItem InvokeProgressiveParse<TItem>(IGeneratedSerializer<TItem> serializer, in GeneratedSerializerParseArguments arguments)
-        => serializer.ParseProgressive(this, in arguments);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public TItem InvokeGreedyParse<TItem>(IGeneratedSerializer<TItem> serializer, in GeneratedSerializerParseArguments arguments)
-        => serializer.ParseGreedy(this, in arguments);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public TItem InvokeGreedyMutableParse<TItem>(IGeneratedSerializer<TItem> serializer, in GeneratedSerializerParseArguments arguments)
-        => serializer.ParseGreedyMutable(this, in arguments);
-
     public Span<byte> GetSpan()
     {
-        throw new InvalidOperationException(ErrorMessage);
+        FSThrow.InvalidOperation(ErrorMessage);
+        return default;
     }
 
     public Memory<byte> GetMemory()
     {
-        throw new InvalidOperationException(ErrorMessage);
+        return FSThrow.InvalidOperation<Memory<byte>>(ErrorMessage);
     }
 
     // Memory<byte> is a relatively heavy struct. It's cheaper to wrap it in a

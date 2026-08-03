@@ -25,6 +25,12 @@ namespace FlatSharp.CodeGen;
 internal static class CSharpHelpers
 {
     internal const string Net7PreprocessorVariable = "NET7_0_OR_GREATER";
+    internal const string Net8PreprocessorVariable = "NET8_0_OR_GREATER";
+
+    /// <summary>
+    /// Shortcut for GetGlobalCompilableTypeName
+    /// </summary>
+    internal static string GGCTN(this Type t) => t.GetGlobalCompilableTypeName();
 
     internal static string GetGlobalCompilableTypeName(this Type t)
     {
@@ -34,6 +40,7 @@ internal static class CSharpHelpers
     internal static string GetCompilableTypeName(this Type t)
     {
         FlatSharpInternal.Assert(!string.IsNullOrEmpty(t.FullName), $"{t} has null/empty full name.");
+        FlatSharpInternal.Assert(!t.IsArray, "Not expecting an array");
 
         string name;
         if (t.IsGenericType)
@@ -45,10 +52,6 @@ internal static class CSharpHelpers
             }
 
             name = $"{t.FullName.Split('`')[0]}<{string.Join(", ", parameters)}>";
-        }
-        else if (t.IsArray)
-        {
-            name = $"{GetCompilableTypeName(t.GetElementType()!)}[]";
         }
         else
         {
@@ -140,6 +143,9 @@ internal static class CSharpHelpers
     internal static string GetAssertSizeOfStatement(ITypeModel model, object size)
     {
         string globalName = model.GetGlobalCompilableTypeName();
-        return $"{typeof(FlatSharpInternal).GetGlobalCompilableTypeName()}.AssertSizeOf<{globalName}>({size});";
+        return $$"""
+                 {{StrykerSuppressor.SuppressNextLine()}}
+                 {{typeof(FlatSharpInternal).GetGlobalCompilableTypeName()}}.AssertSizeOf<{{globalName}}>({{size}});
+                """;
     }
 }

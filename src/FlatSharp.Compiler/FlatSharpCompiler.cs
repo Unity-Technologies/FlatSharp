@@ -19,6 +19,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 
 using CommandLine;
@@ -32,6 +33,8 @@ public class FlatSharpCompiler
 {
     public const string FailureMessage = "// !! FLATSHARP CODE GENERATION FAILED. THIS FILE MAY CONTAIN INCOMPLETE OR INACCURATE DATA !!";
 
+    internal static CompilerOptions? CommandLineOptions { get; private set; }
+
     private static string AssemblyVersion => typeof(ISchemaMutator).Assembly.GetCustomAttribute<AssemblyFileVersionAttribute>()?.Version ?? "unknown";
 
     [ExcludeFromCodeCoverage]
@@ -41,11 +44,18 @@ public class FlatSharpCompiler
 
         try
         {
-            CommandLine.Parser.Default.ParseArguments<CompilerOptions>(args)
-                .WithParsed(x =>
-                {
-                    exitCode = RunCompiler(x);
-                });
+            Parser parser = new(with =>
+            {
+                with.HelpWriter = Console.Error;
+                with.CaseInsensitiveEnumValues = true;
+            });
+
+            parser.ParseArguments<CompilerOptions>(args)
+                  .WithParsed(x =>
+                   {
+                       CommandLineOptions = x;
+                       exitCode = RunCompiler(x);
+                   });
         }
         catch (Exception ex)
         {
@@ -75,15 +85,26 @@ public class FlatSharpCompiler
             Console.Error.WriteLine("FlatSharp compiler: No output directory specified.");
             return -1;
         }
-        
+
+        // Create the output directory if it doesn't exist.
+        if (!Directory.Exists(options.OutputDirectory))
+        {
+            Directory.CreateDirectory(options.OutputDirectory);
+        }
+
         if (!string.IsNullOrEmpty(options.UnityAssemblyPath) && !File.Exists(options.UnityAssemblyPath))
         {
             Console.Error.WriteLine("FlatSharp compiler: Unity assembly path specified does not exist.");
             return -1;
         }
 
-        // Read existing file to see if we even need to do any work.
-        const string outputFileName = "FlatSharp.generated.cs";
+        string outputFileName = "FlatSharp.generated.cs";
+        if (options.MutationTestingMode)
+        {
+            StrykerSuppressor.IsEnabled = true;
+            outputFileName = "FlatSharp.cs";
+        }
+
         string outputFullPath = Path.Combine(options.OutputDirectory, outputFileName);
 
         try
@@ -93,9 +114,9 @@ public class FlatSharpCompiler
             {
                 try
                 {
-                    List<byte[]> bfbs = GetBfbs(options);
+                    var bfbs = GetBfbs(options);
 
-                    string inputHash = ComputeInputHash(bfbs);
+                    string inputHash = ComputeInputHash(bfbs, options);
 
                     if (IsInputUnchanged(outputFullPath, inputHash))
                     {
@@ -215,21 +236,30 @@ public class FlatSharpCompiler
     }
 
     [ExcludeFromCodeCoverage]
-    private static string ComputeInputHash(List<byte[]> bfbs)
+    private static string ComputeInputHash(List<(byte[] bfbs, string _)> bfbs, CompilerOptions options)
     {
+        static void MergeHashes(byte[] hash, byte[] temp)
+        {
+            for (int i = 0; i < temp.Length; ++i)
+            {
+                hash[i] ^= temp[i];
+            }
+        }
+
         string inputHash = AssemblyVersion;
+
         using (var hash = SHA256.Create())
         {
             // Use the assembly hash as the base; this means each build will change the hash for the same schema.
             byte[] hashBytes = hash.ComputeHash(File.ReadAllBytes(typeof(FlatSharpCompiler).Assembly.Location));
 
+            // Supplement with command line options.
+            MergeHashes(hashBytes, hash.ComputeHash(Encoding.UTF8.GetBytes(Newtonsoft.Json.JsonConvert.SerializeObject(options))));
+
+            // Merge each of the schema files.
             foreach (var schema in bfbs)
             {
-                var tempHash = hash.ComputeHash(schema);
-                for (int i = 0; i < 32; ++i)
-                {
-                    hashBytes[i] ^= tempHash[i];
-                }
+                MergeHashes(hashBytes, hash.ComputeHash(schema.bfbs));
             }
 
             inputHash += "." + Convert.ToBase64String(hashBytes);
@@ -325,7 +355,7 @@ public class FlatSharpCompiler
 
             options.InputFiles = fbsFiles.Select(x => x.FullName);
 
-            List<byte[]> bfbs = GetBfbs(options);
+            List<(byte[], string)> bfbs = GetBfbs(options);
             string cSharp = CreateCSharp(bfbs, "hash", options);
 
             var (assembly, formattedText, _) = RoslynSerializerGenerator.CompileAssembly(cSharp, true, additionalRefs);
@@ -338,127 +368,125 @@ public class FlatSharpCompiler
         }
     }
 
-    private static List<byte[]> GetBfbs(CompilerOptions options)
+    private static List<(byte[] bfbs, string fbsPath)> GetBfbs(CompilerOptions options)
     {
         string flatcPath;
 
         if (options.FlatcPath is null)
         {
-            (string os, string name) = GetFlatcPath();
-            string currentProcess = typeof(ISchemaMutator).Assembly.Location;
-            string currentDirectory = Path.GetDirectoryName(currentProcess)!;
-            flatcPath = Path.Combine(currentDirectory, "flatc", os, name);
+            flatcPath = GetFlatcPath();
         }
         else
         {
             flatcPath = options.FlatcPath;
         }
 
+        List<(byte[] bfbs, string fbsPath)> results = new();
         string temp = Path.GetTempPath();
         string dirName = $"flatsharpcompiler_temp_{Guid.NewGuid():n}";
         string outputDir = Path.Combine(temp, dirName);
-
         Directory.CreateDirectory(outputDir);
-
-        using var p = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                CreateNoWindow = true,
-                RedirectStandardError = true,
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                FileName = flatcPath,
-            }
-        };
-
-        var args = new List<string>
-        {
-            "-b",
-            "--schema",
-            "--bfbs-comments",
-            "--bfbs-builtins",
-            "--bfbs-filenames",
-            Path.GetDirectoryName(typeof(ISchemaMutator).Assembly.Location!)!,
-            "--no-warnings",
-            "-o",
-            outputDir,
-        };
-
-        if (!string.IsNullOrEmpty(options.IncludesDirectory))
-        {
-            // One or more includes directory has been specified
-            foreach (var includePath in options.IncludesDirectory.Split(';', StringSplitOptions.RemoveEmptyEntries))
-            {
-                args.AddRange(new[]
-                {
-                    "-I",
-                    new DirectoryInfo(includePath).FullName,
-                });
-            }
-        }
-
-        foreach (var item in options.InputFiles)
-        {
-            args.Add(new FileInfo(item).FullName);
-        }
-
-        foreach (var arg in args)
-        {
-            p.StartInfo.ArgumentList.Add(arg);
-        }
 
         try
         {
-            p.EnableRaisingEvents = true;
-
-            var lines = new List<string>();
-
-            void OnDataReceived(object sender, DataReceivedEventArgs args)
+            foreach (var inputFile in options.InputFiles)
             {
-                if (!string.IsNullOrEmpty(args.Data))
+                string inputFullPath = PathHelpers.NormalizePathName(inputFile);
+
+                using var p = new Process
                 {
-                    lines.Add(args.Data);
-                }
-            }
+                    StartInfo = new ProcessStartInfo
+                    {
+                        CreateNoWindow = true,
+                        RedirectStandardError = true,
+                        RedirectStandardOutput = true,
+                        UseShellExecute = false,
+                        FileName = flatcPath,
+                    }
+                };
 
-            p.OutputDataReceived += OnDataReceived;
-            p.ErrorDataReceived += OnDataReceived;
-
-            p.Start();
-            p.BeginOutputReadLine();
-            p.BeginErrorReadLine();
-            p.WaitForExit();
-
-            if (p.ExitCode == 0)
-            {
-                List<byte[]> bfbs = new();
-                foreach (string output in Directory.GetFiles(outputDir, "*.bfbs"))
+                var args = new List<string>
                 {
-                    bfbs.Add(File.ReadAllBytes(output));
-                }
+                    "-b",
+                    "--schema",
+                    "--bfbs-comments",
+                    "--bfbs-builtins",
+                    "--bfbs-filenames",
+                    Environment.CurrentDirectory,
+                    "--bfbs-absolute-paths",
+                    "--no-warnings",
+                    "-o",
+                    outputDir,
+                };
 
-                return bfbs;
-            }
-            else
-            {
-                foreach (var line in lines)
+                if (!string.IsNullOrEmpty(options.IncludesDirectory))
                 {
-                    ErrorContext.Current.RegisterError(line);
+                    // One or more includes directory has been specified
+                    foreach (var includePath in options.IncludesDirectory.Split(';', StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        args.AddRange(new[]
+                        {
+                            "-I",
+                            new DirectoryInfo(includePath).FullName,
+                        });
+                    }
                 }
 
-                ErrorContext.Current.ThrowIfHasErrors();
-                throw new InvalidFbsFileException("Unknown error when invoking flatc. Process exited with error, but didn't write any errors.");
+                foreach (var arg in args)
+                {
+                    p.StartInfo.ArgumentList.Add(arg);
+                }
+
+                p.StartInfo.ArgumentList.Add(inputFullPath);
+
+                p.EnableRaisingEvents = true;
+
+                var lines = new List<string>();
+
+                void OnDataReceived(object sender, DataReceivedEventArgs args)
+                {
+                    if (!string.IsNullOrEmpty(args.Data))
+                    {
+                        lines.Add(args.Data);
+                    }
+                }
+
+                p.OutputDataReceived += OnDataReceived;
+                p.ErrorDataReceived += OnDataReceived;
+
+                p.Start();
+                p.BeginOutputReadLine();
+                p.BeginErrorReadLine();
+                p.WaitForExit();
+
+                if (p.ExitCode == 0)
+                {
+                    results.Add((
+                        File.ReadAllBytes(Path.Combine(outputDir, Path.GetFileNameWithoutExtension(inputFullPath) + ".bfbs")),
+                        inputFullPath));
+                }
+                else
+                {
+                    foreach (var line in lines)
+                    {
+                        ErrorContext.Current.RegisterError(line);
+                    }
+
+                    ErrorContext.Current.ThrowIfHasErrors();
+                    throw new InvalidFbsFileException("Unknown error when invoking flatc. Process exited with error, but didn't write any errors.");
+                }
             }
         }
         finally
         {
             Directory.Delete(outputDir, recursive: true);
         }
+
+        return results;
     }
 
     [ExcludeFromCodeCoverage]
-    private static (string os, string name) GetFlatcPath()
+    private static string GetFlatcPath()
     {
         string os;
         string name;
@@ -491,11 +519,15 @@ public class FlatSharpCompiler
             throw new InvalidOperationException("FlatSharp compiler is not supported on this operating system.");
         }
 
-        return (os, name);
+        string currentProcess = typeof(FlatSharpCompiler).Assembly.Location;
+        string currentDirectory = Path.GetDirectoryName(currentProcess)!;
+        string flatcPath = Path.Combine(currentDirectory, "flatc", os, name);
+
+        return flatcPath;
     }
 
     private static string CreateCSharp(
-        List<byte[]> bfbs,
+        List<(byte[] bfbs, string inputPath)> bfbs,
         string inputHash,
         CompilerOptions options)
     {
@@ -524,18 +556,19 @@ public class FlatSharpCompiler
             {
                 new FieldNameNormalizerSchemaMutator(),
                 new ExternalTypeSchemaMutator(),
+                new PathNormalizerSchemaMutator(),
             };
 
             Stopwatch sw = Stopwatch.StartNew();
             ISerializer<Schema.Schema> mutableSerializer = Instrument("CompileReflectionFbs", options, FlatBufferSerializer.Default.Compile<Schema.Schema>);
 
-            foreach (var s in bfbs)
+            foreach ((byte[] s, string fbsPath) in bfbs)
             {
-                rootModel.UnionWith(ParseSchema(mutableSerializer, s, options, postProcessTransforms, mutators).ToRootModel(options));
+                rootModel.UnionWith(ParseSchema(mutableSerializer, s, options, postProcessTransforms, mutators).ToRootModel(options, fbsPath));
             }
 
             ErrorContext.Current.ThrowIfHasErrors();
-            
+
             Assembly[] additionalRefs = BuildAdditionalReferences(options);
 
             foreach (var step in steps)
@@ -567,7 +600,7 @@ public class FlatSharpCompiler
                                 Options = localOptions,
                                 InputHash = inputHash,
                                 PreviousAssembly = assembly,
-                                TypeModelContainer = TypeModelContainer.CreateDefault().WithUnitySupport(localOptions.UnityAssemblyPath is not null),
+                                TypeModelContainer = TypeModelContainer.CreateDefault().WithUnitySupport(true),
                             });
 
                         return true;
@@ -590,7 +623,7 @@ public class FlatSharpCompiler
         }
         finally
         {
-            if (csharp is not null)
+            if (csharp is not null && options.PrettyPrint)
             {
                 csharp = Instrument("PrettyPrint", options, () => RoslynSerializerGenerator.GetFormattedText(csharp));
             }
@@ -642,11 +675,21 @@ public class FlatSharpCompiler
     private static Assembly[] BuildAdditionalReferences(CompilerOptions options, IEnumerable<Assembly>? additionalReferences = null)
     {
         var references = new List<Assembly>();
+
         if (additionalReferences is not null)
+        {
             references.AddRange(additionalReferences);
+        }
+
         if (options.UnityAssemblyPath is not null)
+        {
             references.Add(Assembly.LoadFrom(options.UnityAssemblyPath));
-        
+        }
+        else
+        {
+            references.Add(typeof(Unity.Collections.NativeArray<>).Assembly);
+        }
+
         return references.ToArray();
     }
 }

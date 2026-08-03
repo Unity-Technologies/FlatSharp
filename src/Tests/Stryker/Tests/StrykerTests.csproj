@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>FlatSharpStrykerTests</AssemblyName>
+    <RootNamespace>FlatSharpStrykerTests</RootNamespace>
+    <Nullable>annotations</Nullable>
+    <NoWarn>CS1591</NoWarn>
+  </PropertyGroup>
+    
+  <ItemGroup>
+    <Compile Include="..\..\FlatSharpEndToEndTests\DeserializationOptionClassData.cs" Link="DeserializationOptionClassData.cs" />
+    <Compile Include="..\..\FlatSharpEndToEndTests\Helpers.cs" Link="Helpers.cs" />
+    <Compile Include="..\..\FlatSharpEndToEndTests\Utf8StringComparer.cs" Link="Utf8StringComparer.cs" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Microsoft.TestPlatform.ObjectModel" />
+    <PackageReference Include="MSTest.TestAdapter" />
+    <PackageReference Include="MSTest.TestFramework" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\FlatSharp.Runtime\FlatSharp.Runtime.csproj" />
+    <ProjectReference Include="..\CodeGen\CodeGen.csproj" />
+  </ItemGroup>
+
+</Project>
+

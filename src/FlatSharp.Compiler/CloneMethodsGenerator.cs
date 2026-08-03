@@ -34,7 +34,7 @@ internal static class CloneMethodsGenerator
         string className = $"CloneHelpers_{Guid.NewGuid():n}";
         string methodName = "Clone";
 
-        string fullyQualifiedMethodName = $"{@namespace}.{className}.{methodName}";
+        string fullyQualifiedMethodName = $"global::{@namespace}.{className}.{methodName}";
 
         HashSet<Type> seenTypes = new HashSet<Type>();
         foreach (var type in assembly.GetTypes())
@@ -59,7 +59,9 @@ internal static class CloneMethodsGenerator
         writer.AppendLine($"namespace {@namespace}");
         using (writer.WithBlock())
         {
-            writer.AppendLine($"internal static class {className}");
+            string visibility = options.FileVisibility ? "file" : "internal";
+
+            writer.AppendLine($"{visibility} static class {className}");
             using (writer.WithBlock())
             {
                 foreach (var seenType in seenTypes)

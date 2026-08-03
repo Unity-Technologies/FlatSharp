@@ -81,7 +81,7 @@ public class StructVectorTests
                 schema,
                 new()));
 
-        Assert.Contains("error: structs may contain only scalar or struct fields", ex.Message);
+        Assert.Contains("error: Incomplete type in struct is not allowed, type name: Bar", ex.Message);
     }
 
     [Fact]
@@ -221,6 +221,7 @@ public class StructVectorTests
             Assert.Equal(i, attr.Index);
             Assert.Equal(FlatBufferMetadataKind.Accessor, metaAttr.Kind);
             Assert.Equal($"V[{attr.Index}]", metaAttr.Value);
+            Assert.Equal(string.Empty, metaAttr.Key);
         }
 
         var vectorProperty = fooType.GetProperty("V");

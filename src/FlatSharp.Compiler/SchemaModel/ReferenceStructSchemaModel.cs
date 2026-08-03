@@ -15,6 +15,7 @@
  */
 
 using FlatSharp.Compiler.Schema;
+using System.Linq;
 
 namespace FlatSharp.Compiler.SchemaModel;
 
@@ -31,6 +32,7 @@ public class ReferenceStructSchemaModel : BaseReferenceTypeSchemaModel
         };
 
         this.AttributeValidator.WriteThroughValidator = _ => AttributeValidationResult.Valid;
+        this.AttributeValidator.PartialPropertyValidator = _ => AttributeValidationResult.Valid;
     }
 
     public static bool TryCreate(Schema.Schema schema, FlatBufferObject @struct, [NotNullWhen(true)] out ReferenceStructSchemaModel? model)
@@ -41,7 +43,7 @@ public class ReferenceStructSchemaModel : BaseReferenceTypeSchemaModel
             return false;
         }
 
-        if (@struct.Attributes?.ContainsKey(MetadataKeys.ValueStruct) == true)
+        if (@struct.Attributes?.Any(x => x.Key == MetadataKeys.ValueStruct) == true)
         {
             return false;
         }
@@ -74,13 +76,9 @@ public class ReferenceStructSchemaModel : BaseReferenceTypeSchemaModel
 
         writer.AppendSummaryComment(this.Documentation);
         writer.AppendLine(attribute);
+        this.Attributes.EmitAsMetadata(writer);
         writer.AppendLine("[System.Runtime.CompilerServices.CompilerGenerated]");
+        writer.AppendLine($"[System.Diagnostics.DebuggerTypeProxy(\"{this.FullName}\")]");
         writer.AppendLine($"{Helpers.Visibility(context)} partial class {this.Name}");
-        writer.AppendLine($"    : object");
-
-        if (context.Options.GeneratePoolableObjects == true)
-        {
-            writer.AppendLine($"    , IPoolableObject");
-        }
     }
 }

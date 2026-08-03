@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+using System.Collections.Generic;
 using System.Threading;
 
 namespace FlatSharp.Internal;
@@ -22,51 +23,23 @@ public sealed class GreedyIndexedVector<TKey, TValue> : IIndexedVector<TKey, TVa
     where TValue : class, ISortableTable<TKey>
     where TKey : notnull
 {
-    private int alive;
     private readonly Dictionary<TKey, TValue> backingDictionary;
     private bool mutable;
 
-    private GreedyIndexedVector()
+    public GreedyIndexedVector(IList<TValue> backing, bool mutable)
     {
-        this.backingDictionary = new Dictionary<TKey, TValue>();
-        this.mutable = true;
-    }
+        int count = backing.Count;
 
-    public static GreedyIndexedVector<TKey, TValue> GetOrCreate<TInputBuffer, TItemAccessor>(
-        FlatBufferVectorBase<TValue, TInputBuffer, TItemAccessor> backing,
-        bool mutable)
-        where TInputBuffer : IInputBuffer
-        where TItemAccessor : IVectorItemAccessor<TValue, TInputBuffer>
-    {
-        if (!ObjectPool.TryGet(out GreedyIndexedVector<TKey, TValue>? vector))
+        var dictionary = new Dictionary<TKey, TValue>(count);
+        this.backingDictionary = dictionary;
+        
+        for (int i = 0; i < backing.Count; ++i)
         {
-            vector = new();
+            TValue item = backing[i];
+            dictionary[GetKey(item)] = item;
         }
-
-        vector.mutable = mutable;
-        vector.alive = 1;
-
-        var dict = vector.backingDictionary;
-
-#if !NETSTANDARD2_0
-        dict.EnsureCapacity(backing.Count);
-#endif
-
-        foreach (TValue value in backing)
-        {
-            TKey key = SortedVectorHelpers.KeyLookup<TValue, TKey>.KeyGetter(value);
-            if (dict.TryGetValue(key, out var existingValue))
-            {
-                (existingValue as IPoolableObject)?.ReturnToPool();
-            }
-
-            dict[key] = value;
-        }
-
-        // we don't need "backing" any longer
-        backing.ReturnToPool(true);
-
-        return vector;
+        
+        this.mutable = mutable;
     }
 
     /// <summary>
@@ -130,7 +103,7 @@ public sealed class GreedyIndexedVector<TKey, TValue> : IIndexedVector<TKey, TVa
     {
         if (!this.mutable)
         {
-            throw new NotMutableException();
+            FSThrow.NotMutable();
         }
 
         this.backingDictionary[GetKey(value)] = value;
@@ -143,7 +116,7 @@ public sealed class GreedyIndexedVector<TKey, TValue> : IIndexedVector<TKey, TVa
     {
         if (!this.mutable)
         {
-            throw new NotMutableException();
+            return FSThrow.NotMutable<bool>();
         }
 
         TKey key = GetKey(value);
@@ -166,7 +139,7 @@ public sealed class GreedyIndexedVector<TKey, TValue> : IIndexedVector<TKey, TVa
     {
         if (!this.mutable)
         {
-            throw new NotMutableException();
+            FSThrow.NotMutable();
         }
 
         this.backingDictionary.Clear();
@@ -176,33 +149,9 @@ public sealed class GreedyIndexedVector<TKey, TValue> : IIndexedVector<TKey, TVa
     {
         if (!this.mutable)
         {
-            throw new NotMutableException();
+            return FSThrow.NotMutable<bool>();
         }
 
         return this.backingDictionary.Remove(key);
-    }
-
-    public void ReturnToPool(bool unsafeForce = false)
-    {
-        if (FlatBufferDeserializationOption.Greedy.ShouldReturnToPool(unsafeForce))
-        {
-            if (Interlocked.Exchange(ref this.alive, 0) != 0)
-            {
-                var dict = this.backingDictionary;
-
-                foreach (var item in dict)
-                {
-                    if (item.Value is IPoolableObject obj)
-                    {
-                        obj.ReturnToPool(true);
-                    }
-                }
-
-                dict.Clear();
-                this.mutable = false;
-
-                ObjectPool.Return(this);
-            }
-        }
     }
 }

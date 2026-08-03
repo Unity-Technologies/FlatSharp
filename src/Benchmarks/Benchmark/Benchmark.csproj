@@ -1,25 +1,58 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-  <Import Project="..\..\common.props" />
-
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFrameworks>net7.0</TargetFrameworks>
+    <TargetFramework>net8.0</TargetFramework>
     <DelaySign>false</DelaySign>
     <SignAssembly>false</SignAssembly>
-    <DefineConstants>$(DefineContants);CURRENT_VERSION_ONLY;FLATSHARP_7_0_0_OR_GREATER;RUN_COMPARISON_BENCHMARKS</DefineConstants>
+    <DefineConstants>$(DefineContants);CURRENT_VERSION_ONLY;RUN_COMPARISON_BENCHMARKS;FLATSHARP_7_0_0_OR_GREATER</DefineConstants>
+    <RunAnalyzersDuringLiveAnalysis>False</RunAnalyzersDuringLiveAnalysis>
+    <NeedsFlatSharpCompiler>true</NeedsFlatSharpCompiler>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(BuildAot)' == 'true' ">
+    <DefineConstants>$(DefineConstants);AOT</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="BenchmarkDotNet" Version="0.13.2" />
-    <PackageReference Include="BenchmarkDotNet.Diagnostics.Windows" Version="0.13.2" />
-    <PackageReference Include="MessagePack" Version="2.4.35" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
-    <PackageReference Include="protobuf-net" Version="3.1.22" />
+    <PackageReference Include="BenchmarkDotNet" />
+    <PackageReference Include="BenchmarkDotNet.Diagnostics.Windows" />
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.Tools">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup Condition=" '$(BuildAot)' != 'true' ">
+    <PackageReference Include="MessagePack" />
+    <PackageReference Include="Newtonsoft.Json" />
+    <PackageReference Include="protobuf-net" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\FlatSharp\FlatSharp.csproj" />
+    <ProjectReference Include="..\..\FlatSharp.Runtime\FlatSharp.Runtime.csproj" />
     <ProjectReference Include="..\..\Google.FlatBuffers\Google.FlatBuffers.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="BenchmarkUtilities.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>BenchmarkUtilities.tt</DependentUpon>
+    </None>
+    <Compile Update="BenchmarkUtilities.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>BenchmarkUtilities.tt</DependentUpon>
+    </Compile>
+    <None Update="BenchmarkUtilities.tt">
+      <Generator>TextTemplatingFileGenerator</Generator>
+      <LastGenOutput>BenchmarkUtilities.cs</LastGenOutput>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <FlatSharpSchema Include="FBBench/FlatSharp.fbs" />
+    <Protobuf Include="FBBench/Benchmark.proto" />
+  </ItemGroup>
 </Project>

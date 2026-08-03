@@ -1,5 +1,5 @@
 ﻿/*
- * Copyright 2020 James Courtney
+ * Copyright 2024 James Courtney
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,25 +50,18 @@ public static class SpanWriterExtensions
     {
         // Since we are copying bytes here, only LE is supported.
         FlatSharpInternal.AssertLittleEndian();
-
-        var size = Unsafe.SizeOf<TElement>();
-
-        // Inlining this method should allow this check to be elided as the alignment is a constant from the callsite.
-        if (size % alignment != 0)
-        {
-            throw new InvalidOperationException($"Type '{typeof(TElement).FullName}' does not support Unsafe Span serialization because the size ({size}) is not a multiple of the alignment ({alignment}).");
-        }
+        FlatSharpInternal.AssertWellAligned<TElement>(alignment);
 
         int numberOfItems = buffer.Length;
         int vectorStartOffset = ctx.AllocateVector(
             itemAlignment: alignment,
             numberOfItems,
-            sizePerItem: size);
+            sizePerItem: Unsafe.SizeOf<TElement>());
 
         spanWriter.WriteUOffset(span, offset, vectorStartOffset);
         spanWriter.WriteInt(span, numberOfItems, vectorStartOffset);
 
-        var start = span.Slice(vectorStartOffset + sizeof(uint), numberOfItems * size);
+        var start = span.Slice(vectorStartOffset + sizeof(uint), checked(numberOfItems * Unsafe.SizeOf<TElement>()));
 
         MemoryMarshal.Cast<TElement, byte>(buffer).CopyTo(start);
     }
@@ -95,27 +88,24 @@ public static class SpanWriterExtensions
     public static int WriteAndProvisionString<TSpanWriter>(this TSpanWriter spanWriter, Span<byte> span, string value, SerializationContext context)
         where TSpanWriter : ISpanWriter
     {
-        checked
-        {
-            var encoding = SerializationHelpers.Encoding;
+        var encoding = SerializationHelpers.Encoding;
 
-            // Allocate more than we need and then give back what we don't use.
-            int maxItems = encoding.GetMaxByteCount(value.Length) + 1;
-            int stringStartOffset = context.AllocateVector(sizeof(byte), maxItems, sizeof(byte));
+        // Allocate more than we need and then give back what we don't use.
+        int maxItems = encoding.GetMaxByteCount(value.Length) + 1;
+        int stringStartOffset = context.AllocateVector(sizeof(byte), maxItems, sizeof(byte));
 
-            int bytesWritten = spanWriter.GetStringBytes(span.Slice(stringStartOffset + sizeof(uint), maxItems), value, encoding);
+        int bytesWritten = spanWriter.GetStringBytes(span.Slice(stringStartOffset + sizeof(uint), maxItems), value, encoding);
 
-            // null teriminator
-            span[stringStartOffset + bytesWritten + sizeof(uint)] = 0;
+        // null teriminator
+        span[stringStartOffset + bytesWritten + sizeof(uint)] = 0;
 
-            // write length
-            spanWriter.WriteInt(span, bytesWritten, stringStartOffset);
+        // write length
+        spanWriter.WriteInt(span, bytesWritten, stringStartOffset);
 
-            // give back unused space. Account for null terminator.
-            context.Offset -= maxItems - (bytesWritten + 1);
+        // give back unused space. Account for null terminator.
+        context.Offset -= maxItems - (bytesWritten + 1);
 
-            return stringStartOffset;
-        }
+        return stringStartOffset;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -143,7 +133,7 @@ public static class SpanWriterExtensions
 #if DEBUG
         if (offset % size != 0)
         {
-            throw new InvalidOperationException($"BugCheck: attempted to read unaligned data at index: {offset}, expected alignment: {size}");
+            FSThrow.InvalidOperation($"BugCheck: attempted to read unaligned data at index: {offset}, expected alignment: {size}");
         }
 #endif
     }

@@ -66,10 +66,9 @@ public class TableMemberModel : ItemMemberModel
         {
             if (IsValueStruct(this.ItemTypeModel))
             {
-                if (!this.IsRequired)
-                {
-                    throw new InvalidFlatBufferDefinitionException($"Table property '{this.FriendlyName}' declared the WriteThrough attribute, but the field is not marked as required. WriteThrough fields must also be required.");
-                }
+                FlatSharpInternal.Assert(
+                    this.IsRequired,
+                    $"Table property '{this.FriendlyName}' declared the WriteThrough attribute, but the field is not marked as required. WriteThrough fields must also be required.");
 
                 FlatSharpInternal.Assert(
                     !this.ItemTypeModel.SerializeMethodRequiresContext,
@@ -95,10 +94,9 @@ public class TableMemberModel : ItemMemberModel
 
         if (this.IsRequired)
         {
-            if (this.ItemTypeModel.SchemaType == FlatBufferSchemaType.Scalar)
-            {
-                throw new InvalidFlatBufferDefinitionException($"Table property '{this.FriendlyName}' declared the Required attribute. Required is only valid on non-scalar table fields.");
-            }
+            FlatSharpInternal.Assert(
+                this.ItemTypeModel.SchemaType != FlatBufferSchemaType.Scalar,
+                $"Table property '{this.FriendlyName}' declared the Required attribute. Required is only valid on non-scalar table fields.");
 
             FlatSharpInternal.Assert(
                 this.DefaultValue is null,
@@ -216,10 +214,11 @@ public class TableMemberModel : ItemMemberModel
 
             relativeOffsets.Add($@"
                 int relativeOffset{i} = {vtableVariableName}.OffsetOf<{context.InputBufferTypeName}>({context.InputBufferVariableName}, {idx});
-                if (relativeOffset{i} == 0)
-                {{
-                    {this.GetNotPresentStatement()}
-                }}
+                bool isZero{i} = relativeOffset{i} == 0;
+                allZero &= isZero{i};
+
+                {StrykerSuppressor.SuppressNextLine("assignment")}
+                anyZero |= isZero{i};
             ");
 
             absoluteLocations.Add($"relativeOffset{i} + {context.OffsetVariableName}");
@@ -232,7 +231,20 @@ public class TableMemberModel : ItemMemberModel
         };
 
         return $@"
+            bool allZero = true;
+            bool anyZero = false;
+
             {string.Join("\r\n", relativeOffsets)}
+
+            if (allZero)
+            {{
+                {GetNotPresentStatement()}
+            }}
+
+            if (anyZero)
+            {{
+                {typeof(FSThrow).GGCTN()}.{nameof(FSThrow.InvalidData_UnionOnlyPartiallyPresent)}(""{this.FriendlyName}"");
+            }}
 
             var absoluteLocations = ({string.Join(", ", absoluteLocations)});
             return {adjustedContext.GetParseInvocation(this.PropertyInfo.PropertyType)};";
@@ -242,8 +254,7 @@ public class TableMemberModel : ItemMemberModel
     {
         if (this.IsRequired)
         {
-            string message = $"Table property '{this.FriendlyName}' is marked as required, but was missing from the buffer.";
-            return $"throw new {typeof(System.IO.InvalidDataException).GetGlobalCompilableTypeName()}(\"{message}\");";
+            return $"{typeof(FSThrow).GGCTN()}.{nameof(FSThrow.InvalidData_RequiredPropertyNotSet)}(\"{this.FriendlyName}\");";
         }
         else
         {

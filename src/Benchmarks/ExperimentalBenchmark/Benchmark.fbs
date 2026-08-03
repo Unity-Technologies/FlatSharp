@@ -8,30 +8,67 @@ attribute "fs_sortedVector";
 attribute "fs_unsafeExternal";
 attribute "fs_memoryMarshal";
 attribute "fs_vector";
+attribute "fs_writeThrough";
+attribute "fs_sharedString";
 
 namespace BenchmarkCore;
 
-struct ExternalVector3(fs_unsafeExternal:"System.Numerics.Vector3", fs_valueStruct)
-{
-    X : float32;
-    Y : float32;
-    Z : float32;
+struct Foo {
+  id:ulong;
+  count:short;
+  prefix:byte;
+  length:uint;
 }
 
-struct ExternalVectorAvx2(fs_unsafeExternal:"System.Numerics.Vector<float>", fs_valueStruct)
-{
-    Data : [ float32 : 4 ];
+struct Bar {
+  parent:Foo;
+  time:int;
+  ratio:float;
+  size:ushort;
 }
 
-table Item
-{
-    Key : string (key, required);
-    Value : int;
-    Vec3 : ExternalVector3;
-    AVX : ExternalVectorAvx2;
+table FooBar {
+  sibling:Bar;
+  name:string;
+  rating:double;
+  postfix:ubyte;
 }
 
-table Outer (fs_serializer:"Lazy")
-{
-    Items : [ Item ] (fs_vector:"IIndexedVector");
+table FooBarContainer (fs_serializer) {
+  list:[FooBar];  // 3 copies of the above
+  initialized:bool;
+  fruit:short;
+  location:string;
 }
+
+table LotsOfStrings (fs_serializer) {
+  list : [ string ];
+}
+
+table MultiTable (fs_serializer)
+{
+    A : A;
+    B : B;
+    C : C;
+    D : D;
+    E : E;
+    F : F;
+    G : G;
+    H : H;
+    I : I;
+    J : J;
+    K : K;
+}
+
+table A { Value : string; }
+table B { Value : string; }
+table C { Value : string; }
+table D { Value : string; }
+table E { Value : string; }
+table F { Value : string; }
+table G { Value : string; }
+table H { Value : string; Value2 : string; Value3 : string; }
+table I { Value : string; }
+table J { Value : string; }
+table K { Value : string; }
+
