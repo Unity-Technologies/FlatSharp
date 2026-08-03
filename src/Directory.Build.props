@@ -5,7 +5,15 @@
     <AssemblyOriginatorKeyFile>$(MSBuildThisFileDirectory)\..\misc\strongname.snk</AssemblyOriginatorKeyFile>
     <LangVersion>13.0</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <NoWarn>$(NoWarn);CS8032</NoWarn>
+    <!--
+      NU1507 is a Unity fork addition. Central package management makes NuGet insist
+      on package source mapping whenever more than one source is configured, and our
+      build agents legitimately have several. It belongs here rather than on the
+      command line: a -p:NoWarn= switch becomes an MSBuild global property, which
+      project-level <NoWarn> cannot append to, so it silently discards the CS1591 and
+      CS8032 suppressions and TreatWarningsAsErrors turns those into build failures.
+    -->
+    <NoWarn>$(NoWarn);CS8032;NU1507</NoWarn>
     <DisableFastUpToDateCheck>True</DisableFastUpToDateCheck>
     <PipelineBuild>false</PipelineBuild>
     <PipelineBuild Condition=" '$(AppVeyorBuild)' == 'true' or '$(CoverageBuild)' == 'true'">true</PipelineBuild>

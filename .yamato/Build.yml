@@ -5,13 +5,25 @@ build:
     image: burst/burst-base:1.0.8-1195360
     flavor: b1.xlarge
   commands:
-    - gsudo choco install dotnet-7.0-sdk
-    - dotnet build --configuration Release src/FlatSharp.Compiler/FlatSharp.Compiler.csproj -f net7.0
-    - dotnet build --configuration Release src/FlatSharp.sln
-    - dotnet test --configuration Release src/FlatSharp.sln
+    # Builds the two projects whose output is published below rather than the whole
+    # solution. The benchmarks depend on packages carrying published advisories, and
+    # TreatWarningsAsErrors in Directory.Build.props promotes each one to a build
+    # failure, so building code we do not ship only imports other people's problems.
+    # The SDK must be at least as new as the highest TFM here (net9.0); older fails
+    # NETSDK1045. FlatSharp.Runtime needs its own line: the compiler references it,
+    # but only for net6.0..net9.0, and the netstandard2.1 flavor is the one we ship.
+    # Warning suppressions belong in Directory.Build.props, never in a -p:NoWarn=
+    # switch here; see the comment on NoWarn there for why.
+    - gsudo choco install dotnet-9.0-sdk
+    - dotnet build --configuration Release src/FlatSharp.Compiler/FlatSharp.Compiler.csproj
+    - dotnet build --configuration Release src/FlatSharp.Runtime/FlatSharp.Runtime.csproj
   timeout: 30
   artifacts:
     compiler_artifacts:
       paths:
         - src/FlatSharp/bin/Release/**/*
         - src/FlatSharp.Compiler/bin/Release/**/*
+        # Consumers ship the netstandard2.1 runtime, which only builds here. It used
+        # to ride along under src/FlatSharp until 7.9.0 retargeted that project to
+        # net6.0..net9.0 and stopped producing a netstandard flavor.
+        - src/FlatSharp.Runtime/bin/Release/**/*
