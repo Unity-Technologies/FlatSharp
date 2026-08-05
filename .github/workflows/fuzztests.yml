@@ -25,7 +25,7 @@ jobs:
       run: sudo apt install afl++
 
     - name: Configure Crash Reporting
-      run: sudo echo core > /proc/sys/kernel/core_pattern
+      run: echo core | sudo tee /proc/sys/kernel/core_pattern
       
     - name: Generate Test Data
       working-directory: src/Tests/Stryker/FuzzTests
