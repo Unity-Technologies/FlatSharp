@@ -51,8 +51,8 @@ public class MemoryVectorTypeModel : BaseVectorTypeModel
         ValidateWriteThrough(
             writeThroughSupported: false,
             this,
-            context.AllFieldContexts,
-            context.Options);
+            this.typeModelContainer,
+            context.AllFieldContexts);
 
         string method = nameof(InputBufferExtensions.ReadByteMemoryBlock);
         if (this.isReadOnly)
@@ -90,5 +90,10 @@ public class MemoryVectorTypeModel : BaseVectorTypeModel
         {
             IsMethodInline = true,
         };
+    }
+
+    public override string GetDeserializedTypeName(FlatBufferDeserializationOption option, string inputBufferTypeName)
+    {
+        return this.GetGlobalCompilableTypeName();
     }
 }

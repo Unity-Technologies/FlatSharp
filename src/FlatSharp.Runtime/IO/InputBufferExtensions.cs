@@ -52,11 +52,8 @@ public static class InputBufferExtensions
     /// </summary>
     public static string ReadStringFromUOffset<TBuffer>(this TBuffer buffer, int uoffset) where TBuffer : IInputBuffer
     {
-        checked
-        {
-            int numberOfBytes = (int)buffer.ReadUInt(uoffset);
-            return buffer.ReadString(uoffset + sizeof(int), numberOfBytes, SerializationHelpers.Encoding);
-        }
+        int numberOfBytes = (int)buffer.ReadUInt(uoffset);
+        return buffer.ReadString(uoffset + sizeof(int), numberOfBytes, SerializationHelpers.Encoding);
     }
 
     /// <summary>
@@ -64,22 +61,13 @@ public static class InputBufferExtensions
     /// </summary>
     public static int ReadUOffset<TBuffer>(this TBuffer buffer, int offset) where TBuffer : IInputBuffer
     {
-        uint uoffset = buffer.ReadUInt(offset);
+        int uoffset = buffer.ReadInt(offset);
         if (uoffset < sizeof(uint))
         {
-            ThrowUOffsetLessThanMinimumException(uoffset);
+            FSThrow.InvalidData_UOffsetTooSmall((uint)uoffset);
         }
 
-        return checked((int)uoffset);
-    }
-
-    /// <summary>
-    /// Left as no inlining. Literal strings seem to prevent JIT inlining.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static void ThrowUOffsetLessThanMinimumException(uint uoffset)
-    {
-        throw new InvalidDataException($"FlatBuffer was in an invalid format: Decoded uoffset_t had value less than {sizeof(uint)}. Value = {uoffset}");
+        return uoffset;
     }
 
     /// <summary>
@@ -93,66 +81,51 @@ public static class InputBufferExtensions
         out nuint vtableFieldCount,
         out ReadOnlySpan<byte> fieldData) where TBuffer : IInputBuffer
     {
-        checked
+        vtableOffset = tableOffset - buffer.ReadInt(tableOffset);
+        ushort vtableLength = buffer.ReadUShort(vtableOffset);
+
+        if (vtableLength < 4)
         {
-            vtableOffset = tableOffset - buffer.ReadInt(tableOffset);
-            ushort vtableLength = buffer.ReadUShort(vtableOffset);
-
-            if (vtableLength < 4)
-            {
-                ThrowInvalidVtableException();
-            }
-
-            fieldData = buffer.GetReadOnlySpan().Slice(vtableOffset, vtableLength).Slice(4);
-            vtableFieldCount = (nuint)fieldData.Length / 2;
+            FSThrow.InvalidData_VTableTooShort();
         }
-    }
 
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static void ThrowInvalidVtableException()
-    {
-        throw new InvalidDataException("FlatBuffer was in an invalid format: VTable was not long enough to be valid.");
+        fieldData = buffer.GetReadOnlySpan().Slice(vtableOffset, vtableLength).Slice(4);
+        vtableFieldCount = (nuint)fieldData.Length / 2;
     }
 
     // Seems to break JIT in .NET Core 2.1. Framework 4.7 and Core 3.1 work as expected.
     // [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static Memory<byte> ReadByteMemoryBlock<TBuffer>(this TBuffer buffer, int uoffset) where TBuffer : IInputBuffer
     {
-        checked
-        {
-            // The local value stores a uoffset_t, so follow that now.
-            uoffset = uoffset + buffer.ReadUOffset(uoffset);
-            return buffer.GetMemory().Slice(uoffset + sizeof(uint), (int)buffer.ReadUInt(uoffset));
-        }
+        // The local value stores a uoffset_t, so follow that now.
+        uoffset = uoffset + buffer.ReadUOffset(uoffset);
+        return buffer.GetMemory().Slice(uoffset + sizeof(uint), (int)buffer.ReadUInt(uoffset));
     }
 
     // Seems to break JIT in .NET Core 2.1. Framework 4.7 and Core 3.1 work as expected.
     // [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static ReadOnlyMemory<byte> ReadByteReadOnlyMemoryBlock<TBuffer>(this TBuffer buffer, int uoffset) where TBuffer : IInputBuffer
     {
-        checked
-        {
-            // The local value stores a uoffset_t, so follow that now.
-            uoffset = uoffset + buffer.ReadUOffset(uoffset);
-            return buffer.GetReadOnlyMemory().Slice(uoffset + sizeof(uint), (int)buffer.ReadUInt(uoffset));
-        }
+        // The local value stores a uoffset_t, so follow that now.
+        uoffset = uoffset + buffer.ReadUOffset(uoffset);
+        return buffer.GetReadOnlyMemory().Slice(uoffset + sizeof(uint), (int)buffer.ReadUInt(uoffset));
     }
     
+    /// <summary>
+    /// Reads a sequence of TElement items from the buffer at the given offset using the equivalent of reinterpret_cast.
+    /// </summary>
     public static Span<TElement> UnsafeReadSpan<TBuffer, TElement>(this TBuffer buffer, int uoffset) where TBuffer : IInputBuffer where TElement : struct
     {
-        checked
-        {   
-            // The local value stores a uoffset_t, so follow that now.
-            uoffset = uoffset + buffer.ReadUOffset(uoffset);
+        // The local value stores a uoffset_t, so follow that now.
+        uoffset = uoffset + buffer.ReadUOffset(uoffset);
 
-            // We need to construct a Span<TElement> from byte buffer that:
-            // 1. starts at correct offset for vector data
-            // 2. has a length based on *TElement* count not *byte* count
-            var byteSpanAtDataOffset = buffer.GetSpan().Slice(uoffset + sizeof(uint));
-            var sourceSpan = MemoryMarshal.Cast<byte, TElement>(byteSpanAtDataOffset).Slice(0, (int)buffer.ReadUInt(uoffset));
+        // We need to construct a Span<TElement> from byte buffer that:
+        // 1. starts at correct offset for vector data
+        // 2. has a length based on *TElement* count not *byte* count
+        var byteSpanAtDataOffset = buffer.GetSpan().Slice(uoffset + sizeof(uint));
+        var sourceSpan = MemoryMarshal.Cast<byte, TElement>(byteSpanAtDataOffset).Slice(0, (int)buffer.ReadUInt(uoffset));
 
-            return sourceSpan;
-        }
+        return sourceSpan;
     }
 
     [ExcludeFromCodeCoverage] // Not currently used.
@@ -163,7 +136,7 @@ public static class InputBufferExtensions
 #if DEBUG
         if (offset % size != 0)
         {
-            throw new InvalidOperationException($"BugCheck: attempted to read unaligned data at index: {offset}, expected alignment: {size}");
+            FSThrow.InvalidOperation($"BugCheck: attempted to read unaligned data at index: {offset}, expected alignment: {size}");
         }
 #endif
     }

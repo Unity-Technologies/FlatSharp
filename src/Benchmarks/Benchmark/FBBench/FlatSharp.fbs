@@ -1,0 +1,93 @@
+﻿// Copyright 2015 Google Inc. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+
+// trying to represent a typical mix of datatypes:
+// 1 array of 3 elements, each element: 1 string, 3 nested objects, 9 scalars
+// root element has the array, additional string and a short
+
+attribute "fs_valueStruct";
+attribute "fs_serializer";
+attribute "fs_vector";
+attribute "fs_sortedVector";
+
+namespace Benchmark.FBBench.FS;
+
+struct FooValue (fs_valueStruct) {
+  id:ulong;
+  count:short;
+  prefix:byte;
+  length:uint;
+}
+
+struct Foo {
+  id:ulong;
+  count:short;
+  prefix:byte;
+  length:uint;
+}
+
+struct BarValue (fs_valueStruct) {
+  parent:FooValue;
+  time:int;
+  ratio:float;
+  size:ushort;
+}
+
+struct Bar {
+  parent:Foo;
+  time:int;
+  ratio:float;
+  size:ushort;
+}
+
+
+table FooBarValue {
+  sibling:BarValue  (required);
+  name:string;
+  rating:double;
+  postfix:ubyte;
+}
+
+table FooBar {
+  sibling:Bar;
+  name:string;
+  rating:double;
+  postfix:ubyte;
+}
+
+table FooBarContainerValue (fs_serializer) {
+  list:[FooBarValue];  // 3 copies of the above
+  initialized:bool;
+  fruit:short;
+  location:string;
+}
+
+table FooBarContainer (fs_serializer) {
+  list:[FooBar];  // 3 copies of the above
+  initialized:bool;
+  fruit:short;
+  location:string;
+}
+
+table SortedVectorContainer (fs_serializer) {
+    SortedStrings : [ SortedVectorStringKey ] (fs_sortedVector);
+    UnsortedStrings : [ SortedVectorStringKey ];
+
+    SortedInts : [ SortedVectorIntKey ] (fs_sortedVector);
+    UnsortedInts : [ SortedVectorIntKey ];
+}
+
+table SortedVectorStringKey { Key:string (key); }
+table SortedVectorIntKey { Key:int (key); }

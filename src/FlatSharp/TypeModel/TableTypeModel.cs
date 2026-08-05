@@ -65,11 +65,6 @@ public class TableTypeModel : RuntimeTypeModel
     public override bool IsFixedSize => false;
 
     /// <summary>
-    /// Tables can't be part of structs.
-    /// </summary>
-    public override bool IsValidStructMember => false;
-
-    /// <summary>
     /// Tables can be part of tables.
     /// </summary>
     public override bool IsValidTableMember => true;
@@ -83,11 +78,6 @@ public class TableTypeModel : RuntimeTypeModel
     /// Tables can be part of vectors.
     /// </summary>
     public override bool IsValidVectorMember => true;
-
-    /// <summary>
-    /// Tables can't be keys of sorted vectors.
-    /// </summary>
-    public override bool IsValidSortedVectorKey => false;
 
     /// <summary>
     /// Tables are written by reference.
@@ -108,6 +98,11 @@ public class TableTypeModel : RuntimeTypeModel
     /// The property type used as a key.
     /// </summary>
     public TableMemberModel? KeyMember { get; private set; }
+
+    /// <summary>
+    /// If we should build an ISerailizer implementation for this type.
+    /// </summary>
+    public bool ShouldBuildISerializer => this.attribute.BuildSerializer;
 
     /// <summary>
     /// Gets the maximum size of a table assuming all members are populated include the vtable offset.
@@ -133,6 +128,8 @@ public class TableTypeModel : RuntimeTypeModel
 
     public override void Validate()
     {
+        base.Validate();
+
         {
             FlatBufferTableAttribute? attr = this.ClrType.GetCustomAttribute<FlatBufferTableAttribute>();
             FlatSharpInternal.Assert(attr != null, "Table object missing attribute");
@@ -169,20 +166,18 @@ public class TableTypeModel : RuntimeTypeModel
 
             if (property.Attribute.Key)
             {
-                if (this.KeyMember is not null)
-                {
-                    throw new InvalidFlatBufferDefinitionException($"Table {this.GetCompilableTypeName()} has more than one [FlatBufferItemAttribute] with Key set to true.");
-                }
+                FlatSharpInternal.Assert(
+                    this.KeyMember is null,
+                    $"Table {this.GetCompilableTypeName()} has more than one [FlatBufferItemAttribute] with Key set to true.");
 
                 this.KeyMember = model;
             }
 
             for (int i = 0; i < model.ItemTypeModel.PhysicalLayout.Length; ++i)
             {
-                if (!this.occupiedVtableSlots.Add(index + i))
-                {
-                    throw new InvalidFlatBufferDefinitionException($"FlatBuffer Table {this.GetCompilableTypeName()} already defines a property with index {index}. This may happen when unions are declared as these are double-wide members.");
-                }
+                FlatSharpInternal.Assert(
+                    this.occupiedVtableSlots.Add(index + i),
+                    $"FlatBuffer Table {this.GetCompilableTypeName()} already defines a property with index {index}. This may happen when unions are declared as these are double-wide members.");
             }
 
             this.memberTypes[index] = model;
@@ -234,10 +229,9 @@ public class TableTypeModel : RuntimeTypeModel
     {
         if (model.ForceWrite)
         {
-            if (!model.ItemTypeModel.ClassifyContextually(this.SchemaType).IsRequiredValue())
-            {
-                throw new InvalidFlatBufferDefinitionException($"Property '{model.PropertyInfo.Name}' on table '{this.GetCompilableTypeName()}' declares the {nameof(FlatBufferItemAttribute.ForceWrite)} option, but the type is not supported for force write.");
-            }
+            FlatSharpInternal.Assert(
+                model.ItemTypeModel.ClassifyContextually(this.SchemaType).IsRequiredValue(),
+                $"Property '{model.PropertyInfo.Name}' on table '{this.GetCompilableTypeName()}' declares the {nameof(FlatBufferItemAttribute.ForceWrite)} option, but the type is not supported for force write.");
         }
     }
 
@@ -250,10 +244,9 @@ public class TableTypeModel : RuntimeTypeModel
                 throw new InvalidFlatBufferDefinitionException($"Table {this.GetCompilableTypeName()} declares a key property on a type that that does not support being a key in a sorted vector.");
             }
 
-            if (!memberModel.ItemTypeModel.TryGetSpanComparerType(out _))
-            {
-                throw new InvalidFlatBufferDefinitionException($"Table {this.GetCompilableTypeName()} declares a key property on a type whose type model does not supply a ISpanComparer type.");
-            }
+            FlatSharpInternal.Assert(
+                memberModel.ItemTypeModel.TryGetSpanComparerType(out _),
+                $"Table {this.GetCompilableTypeName()} declares a key property on a type whose type model does not supply a ISpanComparer type.");
 
             if (memberModel.IsDeprecated)
             {
@@ -266,15 +259,13 @@ public class TableTypeModel : RuntimeTypeModel
     {
         if (model.IsSortedVector)
         {
-            if (model.ItemTypeModel.SchemaType != FlatBufferSchemaType.Vector)
-            {
-                throw new InvalidFlatBufferDefinitionException($"Property '{model.PropertyInfo.Name}' declares the sortedVector option, but the underlying type was not a vector.");
-            }
+            FlatSharpInternal.Assert(
+                model.ItemTypeModel.SchemaType == FlatBufferSchemaType.Vector,
+                $"Property '{model.PropertyInfo.Name}' declares the sortedVector option, but the underlying type was not a vector.");
 
-            if (!model.ItemTypeModel.TryGetUnderlyingVectorType(out ITypeModel? memberTypeModel))
-            {
-                throw new InvalidFlatBufferDefinitionException($"Property '{model.PropertyInfo.Name}' declares the sortedVector option, but the underlying type model did not report the underlying vector type.");
-            }
+            FlatSharpInternal.Assert(
+                model.ItemTypeModel.TryGetUnderlyingVectorType(out ITypeModel? memberTypeModel),
+                $"Property '{model.PropertyInfo.Name}' declares the sortedVector option, but the underlying type model did not report the underlying vector type.");
 
             if (memberTypeModel.SchemaType != FlatBufferSchemaType.Table)
             {
@@ -286,15 +277,13 @@ public class TableTypeModel : RuntimeTypeModel
                 throw new InvalidFlatBufferDefinitionException($"Property '{model.PropertyInfo.Name}' declares a sorted vector, but the member does not have a key defined. Type = {model.ItemTypeModel.GetCompilableTypeName()}.");
             }
 
-            if (!member.ItemTypeModel.TryGetSpanComparerType(out var spanComparer))
-            {
-                throw new InvalidFlatBufferDefinitionException($"Property '{model.PropertyInfo.Name}' declares a sorted vector, but the key does not have an implementation of ISpanComparer. Keys must be non-nullable scalars or strings. KeyType = {model.ItemTypeModel.GetCompilableTypeName()}");
-            }
+            FlatSharpInternal.Assert(
+                member.ItemTypeModel.TryGetSpanComparerType(out var spanComparer),
+                $"Property '{model.PropertyInfo.Name}' declares a sorted vector, but the key does not have an implementation of ISpanComparer. Keys must be non-nullable scalars or strings. KeyType = {model.ItemTypeModel.GetCompilableTypeName()}");
 
-            if (member.ItemTypeModel.PhysicalLayout.Length != 1)
-            {
-                throw new InvalidFlatBufferDefinitionException($"Property '{model.PropertyInfo.Name}' declares a sorted vector, but the sort key's vtable is not compatible with sorting. KeyType = {model.ItemTypeModel.GetCompilableTypeName()}");
-            }
+            FlatSharpInternal.Assert(
+                member.ItemTypeModel.PhysicalLayout.Length == 1,
+                $"Property '{model.PropertyInfo.Name}' declares a sorted vector, but the sort key's vtable is not compatible with sorting. KeyType = {model.ItemTypeModel.GetCompilableTypeName()}");
 
             return (memberTypeModel, member, spanComparer);
         }
@@ -309,33 +298,23 @@ public class TableTypeModel : RuntimeTypeModel
             .GetMethods(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance)
             .Where(m => m.Name == OnDeserializedMethodName);
 
-        if (methods.Count() > 1)
-        {
-            throw new InvalidFlatBufferDefinitionException($"Type '{typeModel.GetCompilableTypeName()}' provides more than one '{OnDeserializedMethodName}' method.");
-        }
+        FlatSharpInternal.Assert(
+            methods.Count() <= 1,
+            $"Type '{typeModel.GetCompilableTypeName()}' provides more than one '{OnDeserializedMethodName}' method.");
 
-        var method = methods.SingleOrDefault();
+        MethodInfo? method = methods.SingleOrDefault();
         if (method is null)
         {
             return null;
         }
 
-        string message = $"Type '{typeModel.GetCompilableTypeName()}' provides an unusable '{OnDeserializedMethodName}' method. '{OnDeserializedMethodName}' must be protected, have a return type of void, and accept a single parameter of type '{nameof(FlatBufferDeserializationContext)}'.";
-        if (!method.IsFamily ||
-            method.ReturnType != typeof(void) ||
-            method.GetParameters().Length != 1)
-        {
-            throw new InvalidFlatBufferDefinitionException(message);
-        }
+        bool invalidMethod = !method.IsFamily
+                           || method.ReturnType != typeof(void)
+                           || method.GetParameters().Length != 1;
 
-        var firstParameter = method.GetParameters()[0];
-        if (firstParameter.IsOut ||
-            firstParameter.IsOptional ||
-            firstParameter.IsIn ||
-            firstParameter.ParameterType != typeof(FlatBufferDeserializationContext))
-        {
-            throw new InvalidFlatBufferDefinitionException(message);
-        }
+        FlatSharpInternal.Assert(
+            !invalidMethod,
+            $"Type '{typeModel.GetCompilableTypeName()}' provides an unusable '{OnDeserializedMethodName}' method. '{OnDeserializedMethodName}' must be protected, have a return type of void, and accept a single parameter of type '{nameof(FlatBufferDeserializationContext)}'.");
 
         return method;
     }
@@ -344,25 +323,10 @@ public class TableTypeModel : RuntimeTypeModel
     {
         string typeName = CSharpHelpers.GetCompilableTypeName(type);
 
-        if (!type.IsClass)
-        {
-            throw new InvalidFlatBufferDefinitionException($"Can't create type model from type {typeName} because it is not a class.");
-        }
-
-        if (type.IsSealed)
-        {
-            throw new InvalidFlatBufferDefinitionException($"Can't create type model from type {typeName} because it is sealed.");
-        }
-
-        if (type.IsAbstract)
-        {
-            throw new InvalidFlatBufferDefinitionException($"Can't create type model from type {typeName} because it is abstract.");
-        }
-
-        if (type.BaseType != typeof(object))
-        {
-            throw new InvalidFlatBufferDefinitionException($"Can't create type model from type {typeName} its base class is not System.Object.");
-        }
+        FlatSharpInternal.Assert(type.IsClass, $"Can't create type model from type {typeName} because it is not a class.");
+        FlatSharpInternal.Assert(!type.IsSealed, $"Can't create type model from type {typeName} because it is sealed.");
+        FlatSharpInternal.Assert(!type.IsAbstract, $"Can't create type model from type {typeName} because it is abstract.");
+        FlatSharpInternal.Assert(type.BaseType == typeof(object), $"Can't create type model from type {typeName} its base class is not System.Object.");
 
         var defaultCtor =
             type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
@@ -382,18 +346,11 @@ public class TableTypeModel : RuntimeTypeModel
             FlatSharpInternal.Assert(IsVisible(specialCtor), "Special deserialize constructor should be visible.");
             defaultConstructor = specialCtor;
         }
-        else if (defaultCtor is not null)
-        {
-            if (!IsVisible(defaultCtor))
-            {
-                throw new InvalidFlatBufferDefinitionException($"Default constructor for '{typeName}' is not visible to subclasses outside the assembly.");
-            }
-
-            defaultConstructor = defaultCtor;
-        }
         else
         {
-            throw new InvalidFlatBufferDefinitionException($"Unable to find a usable constructor for '{typeName}'. The type must supply a default constructor or single parameter constructor accepting '{nameof(FlatBufferDeserializationContext)}' that is visible to subclasses outside the assembly.");
+            FlatSharpInternal.Assert(defaultCtor is not null, $"No default constructor found for '{typeName}'.");
+            FlatSharpInternal.Assert(IsVisible(defaultCtor), $"Default constructor for '{typeName}' is not visible to subclasses outside the assembly.");
+            defaultConstructor = defaultCtor;
         }
     }
 
@@ -401,18 +358,14 @@ public class TableTypeModel : RuntimeTypeModel
     {
         if (!string.IsNullOrEmpty(fileIdentifier))
         {
-            if (fileIdentifier.Length != FileIdentifierSize)
-            {
-                throw new InvalidFlatBufferDefinitionException($"File identifier '{fileIdentifier}' is invalid. FileIdentifiers must be exactly {FileIdentifierSize} ASCII characters.");
-            }
+            FlatSharpInternal.Assert(
+                fileIdentifier.Length == FileIdentifierSize,
+                $"File identifier '{fileIdentifier}' is invalid. FileIdentifiers must be exactly {FileIdentifierSize} ASCII characters.");
 
             for (int i = 0; i < fileIdentifier.Length; ++i)
             {
                 char c = fileIdentifier[i];
-                if (c >= 128)
-                {
-                    throw new InvalidFlatBufferDefinitionException($"File identifier '{fileIdentifier}' contains non-ASCII characters. Character '{c}' is invalid.");
-                }
+                FlatSharpInternal.Assert(c < 128, $"File identifier '{fileIdentifier}' contains non-ASCII characters. Character '{c}' is invalid.");
             }
         }
     }
@@ -568,19 +521,25 @@ $@"
         TableMemberModel memberModel,
         SerializationCodeGenContext context)
     {
-        string condition = $"if ({memberModel.ItemTypeModel.GetNotEqualToDefaultValueLiteralExpression(valueVariableName, memberModel.DefaultValueLiteral)})";
+        string? comparison = memberModel.ItemTypeModel.TryGetNotEqualToDefaultValueLiteralExpression(valueVariableName, memberModel.DefaultValueLiteral);
+        string condition = string.Empty;
         string elseBlock = string.Empty;
+
+        if (!string.IsNullOrEmpty(comparison))
+        {
+            condition = $"if ({comparison})";
+        }
 
         if (memberModel.ForceWrite)
         {
             condition = string.Empty;
         }
-        else if (memberModel.IsRequired)
+        else if (memberModel.IsRequired && !string.IsNullOrEmpty(condition))
         {
             elseBlock =
             $@"else
             {{
-                throw new {typeof(InvalidOperationException).GetCompilableTypeName()}(""Table property '{memberModel.FriendlyName}' is marked as required, but was not set."");
+                {typeof(FSThrow).GGCTN()}.{nameof(FSThrow.InvalidOperation_RequiredPropertyNotSet)}(""{memberModel.FriendlyName}"");
             }}
             ";
         }
@@ -589,6 +548,7 @@ $@"
         int vTableLength = this.GetVTableLength(index + i);
 
         string prepareBlock = $@"
+            {StrykerSuppressor.SuppressNextLine("assignment")}
             currentOffset += {nameof(SerializationHelpers)}.{nameof(SerializationHelpers.GetAlignmentError)}(currentOffset, {layout.Alignment});
             {OffsetVariableName(index, i)} = currentOffset;
             currentOffset += {layout.InlineSize};";
@@ -606,6 +566,7 @@ $@"
                 else
                 {
                     setVtableBlock = $@"
+                        {StrykerSuppressor.SuppressNextLine("equality")}
                         if ({vTableLength} > vtableLength)
                         {{
                             vtableLength = {vTableLength};
@@ -703,11 +664,11 @@ $@"
 
     public override CodeGeneratedMethod CreateParseMethodBody(ParserCodeGenContext context)
     {
-        string className = this.GetTableReaderClassName(context);
+        string className = this.GetTableReaderClassName(context.Options.DeserializationOption);
 
         // We have to implement two items: The table class and the overall "read" method.
         // Let's start with the read method.
-        var classDef = DeserializeClassDefinition.Create(className, this.onDeserializeMethod, this, this.MaxIndex, context.Options);
+        var classDef = new DeserializeClassDefinition(className, this.onDeserializeMethod, this, this.MaxIndex, context.Options);
 
         // Build up a list of property overrides.
         foreach (var item in this.IndexToMemberMap.Where(x => !x.Value.IsDeprecated))
@@ -723,7 +684,7 @@ $@"
             classDef.AddProperty(value, tempContext);
         }
 
-        string body = $"return {className}<{context.InputBufferTypeName}>.GetOrCreate({context.InputBufferVariableName}, {context.OffsetVariableName} + {context.InputBufferVariableName}.{nameof(InputBufferExtensions.ReadUOffset)}({context.OffsetVariableName}), {context.RemainingDepthVariableName});";
+        string body = $"return new {className}<{context.InputBufferTypeName}>({context.InputBufferVariableName}, {context.OffsetVariableName} + {context.InputBufferVariableName}.{nameof(InputBufferExtensions.ReadUOffset)}({context.OffsetVariableName}), {context.RemainingDepthVariableName});";
         return new CodeGeneratedMethod(body)
         {
             ClassDefinition = classDef.ToString(),
@@ -762,9 +723,16 @@ $@"
                 TableFieldContextVariableName = $"{this.MetadataClassName}.{member.PropertyInfo.Name}",
             };
 
+            string condition = string.Empty;
+            string? comparison = itemModel.TryGetNotEqualToDefaultValueLiteralExpression(variableName, member.DefaultValueLiteral);
+            if (!string.IsNullOrEmpty(comparison))
+            {
+                condition = $"if ({comparison})";
+            }
+
             string statement =
 $@"
-                if ({itemModel.GetNotEqualToDefaultValueLiteralExpression(variableName, member.DefaultValueLiteral)})
+                {condition}
                 {{
                     runningSum += {itemContext.GetMaxSizeInvocation(itemModel.ClrType)};
                 }}";
@@ -819,9 +787,15 @@ $@"
         return tableMember != null;
     }
 
+    public override string GetDeserializedTypeName(FlatBufferDeserializationOption option, string inputBufferTypeName)
+    {
+        var (ns, name) = DefaultMethodNameResolver.ResolveHelperClassName(this);
+        return $"{ns}.{name}.{this.GetTableReaderClassName(option)}<{inputBufferTypeName}>";
+    }
+
     private int GetVTableLength(int index) => 4 + (2 * (index + 1));
 
     private int GetVTablePosition(int index) => 4 + (2 * index);
 
-    private string GetTableReaderClassName(ParserCodeGenContext context) => $"tableReader_{this.GuidBase}_{context.Options.DeserializationOption}";
+    private string GetTableReaderClassName(FlatBufferDeserializationOption option) => $"tableReader_{this.GuidBase}_{option}";
 }

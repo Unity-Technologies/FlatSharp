@@ -31,9 +31,12 @@ public class StructTypeModel : RuntimeTypeModel
     private int maxAlignment = 1;
     private ConstructorInfo? preferredConstructor;
     private MethodInfo? onDeserializeMethod;
+    private readonly Guid guid = Guid.NewGuid();
+    private readonly FlatBufferStructAttribute? attribute;
 
     internal StructTypeModel(Type clrType, TypeModelContainer container) : base(clrType, container)
     {
+        this.attribute = clrType.GetCustomAttribute<FlatBufferStructAttribute>();
     }
 
     /// <summary>
@@ -73,11 +76,6 @@ public class StructTypeModel : RuntimeTypeModel
     public override bool IsValidVectorMember => true;
 
     /// <summary>
-    /// Structs can't be keys of sorted vectors.
-    /// </summary>
-    public override bool IsValidSortedVectorKey => false;
-
-    /// <summary>
     /// We only need context if one of our children needs it.
     /// </summary>
     public override bool SerializeMethodRequiresContext => this.Members.Any(x => x.ItemTypeModel.SerializeMethodRequiresContext);
@@ -106,10 +104,12 @@ public class StructTypeModel : RuntimeTypeModel
 
     public override CodeGeneratedMethod CreateParseMethodBody(ParserCodeGenContext context)
     {
+        FlatSharpInternal.Assert(this.attribute is not null, "Attribute shouldn't be null");
+
         // We have to implement two items: The table class and the overall "read" method.
         // Let's start with the read method.
-        string className = "structReader_" + Guid.NewGuid().ToString("n");
-        DeserializeClassDefinition classDef = DeserializeClassDefinition.Create(
+        string className = this.GetDeserializedClassName(context.Options.DeserializationOption);
+        DeserializeClassDefinition classDef = new(
             className,
             this.onDeserializeMethod,
             this,
@@ -123,7 +123,7 @@ public class StructTypeModel : RuntimeTypeModel
             classDef.AddProperty(value, context);
         }
 
-        return new CodeGeneratedMethod($"return {className}<{context.InputBufferTypeName}>.GetOrCreate({context.InputBufferVariableName}, {context.OffsetVariableName}, {context.RemainingDepthVariableName});")
+        return new CodeGeneratedMethod($"return new {className}<{context.InputBufferTypeName}>({context.InputBufferVariableName}, {context.OffsetVariableName}, {context.RemainingDepthVariableName});")
         {
             ClassDefinition = classDef.ToString(),
             IsMethodInline = true,
@@ -195,10 +195,7 @@ public class StructTypeModel : RuntimeTypeModel
     {
         base.Validate();
 
-        {
-            FlatBufferStructAttribute? attribute = this.ClrType.GetCustomAttribute<FlatBufferStructAttribute>();
-            FlatSharpInternal.Assert(attribute != null, "Missing attribute.");
-        }
+        FlatSharpInternal.Assert(this.attribute is not null, "Missing attribute");
         
         // Reset in case validation is invoked multiple times.
         this.inlineSize = 0;
@@ -209,10 +206,9 @@ public class StructTypeModel : RuntimeTypeModel
 
         var properties = this.GetProperties();
 
-        if (!properties.Any())
-        {
-            throw new InvalidFlatBufferDefinitionException($"Can't create struct type model from type {this.GetCompilableTypeName()} because it does not have any non-static [FlatBufferItem] properties. Structs cannot be empty.");
-        }
+        FlatSharpInternal.Assert(
+            properties.Any(),
+            $"Can't create struct type model from type {this.GetCompilableTypeName()} because it does not have any non-static [FlatBufferItem] properties. Structs cannot be empty.");
 
         ushort expectedIndex = 0;
 
@@ -221,26 +217,22 @@ public class StructTypeModel : RuntimeTypeModel
             var propertyAttribute = item.Attribute;
             var property = item.Property;
 
-            if (propertyAttribute.Deprecated)
-            {
-                throw new InvalidFlatBufferDefinitionException($"FlatBuffer struct {this.GetCompilableTypeName()} may not have deprecated properties");
-            }
+            FlatSharpInternal.Assert(
+                !propertyAttribute.Deprecated,
+                $"FlatBuffer struct {this.GetCompilableTypeName()} may not have deprecated properties");
 
-            if (propertyAttribute.ForceWrite)
-            {
-                throw new InvalidFlatBufferDefinitionException($"FlatBuffer struct {this.GetCompilableTypeName()} may not have properties with the ForceWrite option set to true.");
-            }
+            FlatSharpInternal.Assert(
+                !propertyAttribute.ForceWrite,
+                $"FlatBuffer struct {this.GetCompilableTypeName()} may not have properties with the ForceWrite option set to true.");
 
             ushort index = propertyAttribute.Index;
-            if (index != expectedIndex)
-            {
-                throw new InvalidFlatBufferDefinitionException($"FlatBuffer struct {this.GetCompilableTypeName()} does not declare an item with index {expectedIndex}. Structs must have sequenential indexes starting at 0.");
-            }
+            FlatSharpInternal.Assert(
+                index == expectedIndex,
+                $"FlatBuffer struct {this.GetCompilableTypeName()} does not declare an item with index {expectedIndex}. Structs must have sequenential indexes starting at 0.");
 
-            if (propertyAttribute.DefaultValue is not null)
-            {
-                throw new InvalidFlatBufferDefinitionException($"FlatBuffer struct {this.GetCompilableTypeName()} declares default value on index {expectedIndex}. Structs may not have default values.");
-            }
+            FlatSharpInternal.Assert(
+                propertyAttribute.DefaultValue is null,
+                $"FlatBuffer struct {this.GetCompilableTypeName()} declares default value on index {expectedIndex}. Structs may not have default values.");
 
             expectedIndex++;
             ITypeModel propertyModel = this.typeModelContainer.CreateTypeModel(property.PropertyType);
@@ -268,13 +260,20 @@ public class StructTypeModel : RuntimeTypeModel
         {
             ITypeModel memberModel = member.ItemTypeModel;
 
-            if (!memberModel.IsValidStructMember || memberModel.PhysicalLayout.Length > 1)
-            {
-                throw new InvalidFlatBufferDefinitionException($"Struct '{this.GetCompilableTypeName()}' property {member.PropertyInfo.Name} (Index {member.Index}) with type {CSharpHelpers.GetCompilableTypeName(member.PropertyInfo.PropertyType)} cannot be part of a flatbuffer struct.");
-            }
+            bool validMember = memberModel.IsValidStructMember && memberModel.PhysicalLayout.Length == 1;
+
+            FlatSharpInternal.Assert(
+                validMember,
+                $"Struct '{this.GetCompilableTypeName()}' property {member.PropertyInfo.Name} (Index {member.Index}) with type {CSharpHelpers.GetCompilableTypeName(member.PropertyInfo.PropertyType)} cannot be part of a flatbuffer struct.");
 
             member.Validate();
         }
+    }
+
+    public override string GetDeserializedTypeName(FlatBufferDeserializationOption option, string inputBufferTypeName)
+    {
+        var (ns, name) = DefaultMethodNameResolver.ResolveHelperClassName(this);
+        return $"{ns}.{name}.{this.GetDeserializedClassName(option)}<{inputBufferTypeName}>";
     }
 
     private IEnumerable<(PropertyInfo Property, FlatBufferItemAttribute Attribute)> GetProperties()
@@ -284,5 +283,10 @@ public class StructTypeModel : RuntimeTypeModel
             .Select(x => (Property: x, Attribute: x.GetCustomAttribute<FlatBufferItemAttribute>()!))
             .Where(x => x.Attribute is not null)
             .OrderBy(x => x.Attribute.Index);
+    }
+
+    private string GetDeserializedClassName(FlatBufferDeserializationOption option)
+    {
+        return $"structReader_{this.guid:n}_{option}";
     }
 }

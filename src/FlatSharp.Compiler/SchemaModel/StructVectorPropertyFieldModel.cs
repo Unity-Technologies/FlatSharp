@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+using FlatSharp.CodeGen;
 using FlatSharp.Compiler.Schema;
 
 namespace FlatSharp.Compiler.SchemaModel;
@@ -55,7 +56,7 @@ public record StructVectorPropertyFieldModel
                 $"{field.Name}[{i}]",
                 modifiedAttributes)
             {
-                ProtectedGetter = true,
+                ProtectedGetter = FlatSharpCompiler.CommandLineOptions?.MutationTestingMode != true,
             };
 
             propertyModels.Add(model);
@@ -118,6 +119,7 @@ public record StructVectorPropertyFieldModel
         writer.AppendLine();
 
         writer.AppendSummaryComment(this.Documentation);
+        this.Attributes.EmitAsMetadata(writer);
         writer.AppendLine($"public {structName} {this.Field.Name} => (__{this.Field.Name} ??= new {structName}(this));");
         writer.AppendLine();
 
@@ -154,7 +156,7 @@ public record StructVectorPropertyFieldModel
                             writer.AppendLine($"case {i}: return thisItem.{this.Properties[i].FieldName};");
                         }
 
-                        writer.AppendLine($"default: throw new IndexOutOfRangeException();");
+                        writer.AppendLine($"default: return {typeof(FSThrow).GGCTN()}.{nameof(FSThrow.IndexOutOfRange)}<{typeName}>();");
                     }
                 }
 
@@ -174,7 +176,7 @@ public record StructVectorPropertyFieldModel
                                 writer.AppendLine($"case {i}: thisItem.{this.Properties[i].FieldName} = value; break;");
                             }
 
-                            writer.AppendLine($"default: throw new IndexOutOfRangeException();");
+                            writer.AppendLine($"default: {typeof(FSThrow).GGCTN()}.{nameof(FSThrow.IndexOutOfRange)}(); break;");
                         }
                     }
                 }

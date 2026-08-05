@@ -4,25 +4,36 @@
 
 FlatSharp is Google's FlatBuffers serialization format implemented in C#, for C#. FlatBuffers is a zero-copy binary serialization format intended for high-performance scenarios. 
 FlatSharp leverages the latest and greatest from .NET in the form of `Memory<T>` and `Span<T>`.
-As such, FlatSharp's safe-code implementations are often faster than other implementations using unsafe code. FlatSharp aims to provide 3 core priorities:
+As such, FlatSharp's safe-code implementations are often faster than other implementations using unsafe code. FlatSharp aims to provide 4 core priorities:
 
 - Usability
 - Safety & Speed
 - Compatibility with other C#-focused projects like Unity, Blazor, and Xamarin.
+- Compatibility with AOT scenarios including dotnet and Mono.
 
 All FlatSharp packages are published on nuget.org:
 - **FlatSharp.Runtime**: The runtime library. You always need this.
 - **FlatSharp.Compiler**: Build time compiler for generating C# from an FBS schema.
 
-FlatSharp is a mature library and has been shipped to production at Microsoft, Unity3D, and others. Full status can be found at [ProjectStatus.md](ProjectStatus.md).
+FlatSharp is a mature library and has been shipped to production at Microsoft, Unity3D, and others. Full status can be found at [ProjectStatus.md](ProjectStatus.md). FlatSharp is [extensively tested](https://github.com/jamescourtney/FlatSharp/wiki/Testing), using Mutation Testing, Code Coverage, Oracle Testing, Fuzz Testing, and other techniques to ensure the library doesn't regress.
+
+### Issues, Contributions, and Feedback
+Don't be a stranger! All issues and feedback are welcome here. If you'd like to share how you use FlatSharp, please consider filling out the form [here](https://forms.office.com/r/sHkumrr6sK)!
+
+### Sponsorship
+FlatSharp is free and always will be. However, the project does take a significant amount of time to maintain. If you or your organization find the project useful, please consider a [Github sponsorship](https://github.com/sponsors/jamescourtney). Any amount is appreciated!
 
 ### Getting Started
 If you're completely new to FlatBuffers, take a minute to look over [the FlatBuffer overview](https://google.github.io/flatbuffers/index.html#flatbuffers_overview). Additionally, it's worth the time to understand the different elements of [FlatBuffer schemas](https://google.github.io/flatbuffers/flatbuffers_guide_writing_schema.html).
 
-#### 1. Define a schema
-FlatSharp, like other FlatBuffers implementations, uses [FBS files](samples/Example00-Basics/Basics.fbs) to define schemas. Because FlatSharp runs with your build, all code is generated at build time, making FlatSharp compatible with .NET AOT, Blazor, and Unity.
+### Quick Start
 
-``` fbs
+#### 1. Reference FlatSharp
+Reference both `FlatSharp.Runtime` and `FlatSharp.Compiler` from NuGet. Use the same version for both.
+
+#### 2. Define a Schema
+
+```idl
 // all FlatSharp FBS attributes start with the 'fs_' prefix.
 attribute "fs_serializer";
 
@@ -31,40 +42,42 @@ namespace MyNamespace;
 enum Color : ubyte { Red = 1, Green, Blue }
 
 table Person (fs_serializer) {
-    Id:int;
-    Name:string;
-    Parent:Person (deprecated);
-    Children:[Person];
-    FavoriteColor:Color = Blue;
-    Position:Location;
+    id : int;
+    name : string;
+    parent : Person (deprecated);
+    children : [ Person ];
+    favorite_color : Color = Blue;
+    position : Location;
 }
 
 struct Location {
-    Latitude:float;
-    Longitude:float;
-}
-
-rpc_service PersonService {
-    GetParent(Person):Person;
+    latitude : float;
+    longitude : float;
 }
 ```
 
-#### 2. Serialize your data
-Serialization is easy!
+#### 3. Update Your csproj
+```xml
+<ItemGroup>
+  <FlatSharpSchema Include="YourSchema.fbs" />
+</ItemGroup>
+```
+
+#### 4. Serialize Your Data
 ```c#
 Person person = new Person(...);
 int maxBytesNeeded = Person.Serializer.GetMaxSize(person);
 byte[] buffer = new byte[maxBytesNeeded];
-int bytesWritten = Person.Serializer.Serialize(buffer, person);
+int bytesWritten = Person.Serializer.Write(buffer, person);
 ```
 
-#### 3. Parse your data
-Deserializing is easier!
+#### 5. Parse Your Data
+
 ```c#
 Person p = Person.Serializer.Parse(data);
 ```
 
-#### Samples & Documentation
+### Samples & Documentation
 FlatSharp supports some interesting features not covered here. Detailed documentation is in the [wiki](https://github.com/jamescourtney/FlatSharp/wiki). The [samples solution](samples/) is a good tutorial and has full examples of:
 - [Basic Usage](samples/Example00-Basics/)
 - [Deserialization Modes (Lazy, Greedy, and everything in between)](samples/Example01-DeserializationModes/)
@@ -89,22 +102,22 @@ which has properties defined in such a way as to index into the buffer, accordin
 
 ### Security
 Serializers are a common vector for security issues. FlatSharp takes the following approach to security:
-- All operations are overflow-checked
 - No unsafe code; all operations bounds-checked
 - No IL generation
 - Use standard .NET libraries for reading and writing from memory
 - Depth tracking enabled for recursive schemas to prevent stack overflows.
+- Periodic, manual fuzz testing using SharpFuzz and AFL++.
 
 FlatSharp *does* use some techniques such as `MemoryMarshal.Read` on certain hot paths, but these usages are narrowly scoped and well tested.
 
 ### Performance & Benchmarks
-FlatSharp is really, really fast. The FlatSharp benchmarks were run on .NET 7.0, using a C# approximation of [Google's FlatBuffer benchmark](https://github.com/google/flatbuffers/tree/benchmarks/benchmarks/cpp/FB), which can be found [here](src/Benchmark).
+FlatSharp is really, really fast. The FlatSharp benchmarks were run on .NET 8.0 with PGO enabled using a C# approximation of [Google's FlatBuffer benchmark](https://github.com/google/flatbuffers/tree/benchmarks/benchmarks/cpp/FB), which can be found [here](src/Benchmark).
 
 The benchmarks test 4 different serialization frameworks, all using default settings:
-- FlatSharp -- 7.0.0
-- Protobuf.NET -- 3.1.22
+- FlatSharp -- 7.5.0
+- Protobuf.NET -- 3.2.30
 - Google's C# Flatbuffers -- 22.10.26
-- Message Pack C# -- 2.4.35
+- Message Pack C# -- 2.5.140
 
 The full results for each version of FlatSharp can be viewed in the [benchmarks folder](benchmarks). Additionally, the benchmark data contains performance data for many different configurations of FlatSharp and other features, such as sorted vectors and shared strings.
 
@@ -114,24 +127,28 @@ Serialization benchmarks are not reflective of "real-world" performance, because
 #### Serialization
 This data shows the mean time it takes to serialize a typical message containing a 30-item vector containing a variety of data types:
 
-| Library                         | Time     | Relative Performance | Data Size |
-|---------------------------------|----------|----------------------|-----------|
-| FlatSharp                       | 1,212    | 100%                 | 3085      |
-| Message Pack C#                 | 2,506    | 207%                 | 2497      |
-| Google Flatbuffers              | 5,262    | 434%                 | 3312      |
-| Google Flatbuffers (Object API) | 5,675    | 468%                 | 3312      |
-| Protobuf.NET                    | 8,212    | 678%                 | 2646      |
+| Library            | Time (JIT) | Time (NativeAOT) | Data Size |
+|--------------------|------------|------------------|-----------|
+| FlatSharp          |     732 ns |           809 ns |      3085 |
+| Message Pack C#    |      1,998 |              N/A |      2497 |
+| Google FlatBuffers |      2,544 |            4,324 |      3312 |
+| Protobuf           |      2,688 |            3,092 |      2646 |
+| Protobuf.NET       |      5,038 |              N/A |      2646 |
 
 #### Deserialization
 How much time does it take to parse and then fully enumerate the message from the serialization benchmark?
-| Library                         | Time     | Relative Performance |
-|---------------------------------|----------|----------------------|
-| FlatSharp (Optimized)           | 1,681 ns | 89%                  |
-| FlatSharp (Default)             | 1,896    | 100%                 |
-| Message Pack C#                 | 4,877    | 257%                 |
-| Google Flatbuffers              | 4,587    | 242%                 |
-| Google Flatbuffers (Object API) | 7,394    | 390%                 |
-| Protobuf.NET                    | 8,466    | 447%                 |
+
+| Library                         | Time (JIT) | Time (NativeAOT) |
+|---------------------------------|------------|------------------|
+| FlatSharp (Lazy)                |   1,263 ns |         1,347 ns |
+| FlatSharp (Greedy)              |      1,130 |            2,641 |
+| Message Pack C#                 |      2,777 |              N/A |
+| Google FlatBuffers              |      1,741 |            3,070 |
+| Google FlatBuffers (Object API) |      2,660 |            5,009 |
+| Protobuf                        |      3,289 |            3,575 |
+| Protobuf.NET                    |      5,092 |              N/A |
+
+Finally, FlatSharp scales quite well in scenarios without PGO such as AOT compilation and older runtimes.
 
 ### License
-FlatSharp is licensed under Apache 2.0.
+FlatSharp is licensed under Apache 2.0. Have fun!

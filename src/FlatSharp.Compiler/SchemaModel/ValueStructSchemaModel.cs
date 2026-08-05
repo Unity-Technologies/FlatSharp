@@ -20,6 +20,7 @@ using FlatSharp.Attributes;
 using FlatSharp.TypeModel;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using FlatSharp.Internal;
+using FlatSharp.CodeGen;
 
 namespace FlatSharp.Compiler.SchemaModel;
 
@@ -84,7 +85,7 @@ public class ValueStructSchemaModel : BaseSchemaModel
             return false;
         }
 
-        if (@struct.Attributes?.ContainsKey(MetadataKeys.ValueStruct) != true)
+        if (@struct.Attributes?.Any(x => x.Key == MetadataKeys.ValueStruct) != true)
         {
             return false;
         }
@@ -133,17 +134,41 @@ public class ValueStructSchemaModel : BaseSchemaModel
             size = $", Size = {model.PhysicalLayout[0].InlineSize}";
         }
 
+        this.Attributes.EmitAsMetadata(writer);
         writer.AppendLine($"[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Explicit{size})]");
         writer.AppendLine($"{Helpers.Visibility(context)} partial struct {this.Name}");
+        if (context.Options.GenerateMethods)
+        {
+            writer.AppendLine($": System.IEquatable<{this.Name}>");
+        }
         using (writer.WithBlock())
         {
             foreach (var field in this.fields)
             {
                 writer.AppendSummaryComment(field.Documentation);
                 writer.AppendLine($"[System.Runtime.InteropServices.FieldOffset({field.Offset})]");
-                writer.AppendLine($"[FlatBufferMetadataAttribute(FlatBufferMetadataKind.Accessor, \"{field.Accessor}\")]");
+                writer.AppendLine($"[FlatBufferMetadataAttribute(FlatBufferMetadataKind.Accessor, \"\", \"{field.Accessor}\")]");
+                field.Attributes.EmitAsMetadata(writer);
                 writer.AppendLine($"{field.Visibility} {field.TypeName} {field.Name};");
                 writer.AppendLine();
+            }
+
+            if (context.Options.GenerateMethods)
+            {
+                string typeNames = string.Join(", ", this.fields.Select(x => x.TypeName));
+                string names = string.Join(", ", this.fields.Select(x => x.Name));
+                string tupleType = this.fields.Count == 0 ? "System.ValueTuple" : this.fields.Count == 1 ? $"System.ValueTuple<{typeNames}>" : $"({typeNames})";
+                string tupleValue = this.fields.Count < 2 ? $"System.ValueTuple.Create({names})" : $"({names})";
+                writer.AppendLine($"public {tupleType} ToTuple() => {tupleValue};");
+                writer.AppendLine($"public override bool Equals(object? obj) => obj is {this.Name} other && this.Equals(other);");
+                writer.AppendLine($"public bool Equals({this.Name} other) => ToTuple().Equals(other.ToTuple());");
+                writer.AppendLine($"public static bool operator ==({this.Name} left, {this.Name} right) => left.Equals(right);");
+                writer.AppendLine($"public static bool operator !=({this.Name} left, {this.Name} right) => !left.Equals(right);");
+                writer.AppendLine("public override int GetHashCode() => ToTuple().GetHashCode();");
+                // This matches C# records
+                string fieldStrings = string.Join(", ", this.fields.Select(x => $"{x.Name} = {{this.{x.Name}}}"));
+                string fieldStringsWithSpace = this.fields.Count == 0 ? " " : $" {fieldStrings} ";
+                writer.AppendLine($"public override string ToString() => $\"{this.Name} {{{{{fieldStringsWithSpace}}}}}\";");
             }
 
             foreach (var sv in this.structVectors)
@@ -162,7 +187,7 @@ public class ValueStructSchemaModel : BaseSchemaModel
                         writer.AppendLine($"if (unchecked((uint)index) >= {sv.Properties.Count})");
                         using (writer.WithBlock())
                         {
-                            writer.AppendLine("throw new IndexOutOfRangeException();");
+                            writer.AppendLine($"{typeof(FSThrow).GGCTN()}.{nameof(FSThrow.IndexOutOfRange)}();");
                         }
 
                         writer.AppendLine($"return ref System.Runtime.CompilerServices.Unsafe.Add(ref item.{sv.Properties[0]}, index);");
@@ -172,13 +197,15 @@ public class ValueStructSchemaModel : BaseSchemaModel
                         writer.AppendLine("switch (index)");
                         using (writer.WithBlock())
                         {
+                            FlatSharpInternal.Assert(sv.Properties.Count >= 1, "Expected at least 1 element in struct vector.");
+
                             for (int i = 0; i < sv.Properties.Count; ++i)
                             {
                                 var item = sv.Properties[i];
                                 writer.AppendLine($"case {i}: return ref item.{item};");
                             }
 
-                            writer.AppendLine("default: throw new IndexOutOfRangeException();");
+                            writer.AppendLine($"default: {typeof(FSThrow).GGCTN()}.{nameof(FSThrow.IndexOutOfRange)}(); goto case 0;");
                         }
                     }
                 }
@@ -256,6 +283,7 @@ public class ValueStructSchemaModel : BaseSchemaModel
             this.TypeName = type;
             this.Accessor = accessor;
             this.Documentation = documentation;
+            this.Attributes = attributes;
 
             new FlatSharpAttributeValidator(FlatBufferSchemaElementType.ValueStructField, $"{parent.Name}.{name}").Validate(attributes);
         }
@@ -271,5 +299,7 @@ public class ValueStructSchemaModel : BaseSchemaModel
         public string Accessor { get; }
 
         public IEnumerable<string>? Documentation { get; }
+
+        public IFlatSharpAttributes Attributes { get; }
     }
 }

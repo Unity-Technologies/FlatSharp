@@ -30,7 +30,8 @@ public abstract class BaseReferenceTypeSchemaModel : BaseSchemaModel
     protected readonly List<StructVectorPropertyFieldModel> structVectors;
     protected readonly FlatBufferObject flatBufferObject;
 
-    protected BaseReferenceTypeSchemaModel(Schema.Schema schema, FlatBufferObject flatBufferObject) : base(schema, flatBufferObject.Name, new FlatSharpAttributes(flatBufferObject.Attributes))
+    protected BaseReferenceTypeSchemaModel(Schema.Schema schema, FlatBufferObject flatBufferObject)
+        : base(schema, flatBufferObject.Name, new FlatSharpAttributes(flatBufferObject.Attributes))
     {
         this.properties = new Dictionary<int, PropertyFieldModel>();
         this.DeclaringFile = flatBufferObject.DeclarationFile;
@@ -74,7 +75,6 @@ public abstract class BaseReferenceTypeSchemaModel : BaseSchemaModel
             this.EmitDefaultConstrutor(writer, context);
             this.EmitDeserializationConstructor(writer);
             this.EmitCopyConstructor(writer, context);
-            this.EmitPoolableObject(writer, context);
 
             writer.AppendLine("static partial void OnStaticInitialize();");
 
@@ -86,18 +86,27 @@ public abstract class BaseReferenceTypeSchemaModel : BaseSchemaModel
                 writer.AppendLine("this.OnInitialized(context);");
             }
 
-            foreach (var property in this.properties.OrderBy(x => x.Key))
+            var orderedProperties = this.properties.OrderBy(x => x.Key);
+            foreach (var property in orderedProperties)
             {
                 int index = property.Key;
                 PropertyFieldModel model = property.Value;
 
                 writer.AppendLine();
-                model.WriteCode(writer);
+                model.WriteCode(context, writer);
             }
 
             foreach (var sv in this.structVectors)
             {
                 sv.WriteCode(writer, context);
+            }
+
+            if (context.Options.GenerateMethods)
+            {
+                // This matches C# records
+                string fieldStrings = string.Join(", ", orderedProperties.Select(p => p.Value.FieldName).Select(n => $"{n} = {{this.{n}}}"));
+                string fieldStringsWithSpace = this.properties.Count == 0 ? " " : $" {fieldStrings} ";
+                writer.AppendLine($"public override string ToString() => $\"{this.Name} {{{{{fieldStringsWithSpace}}}}}\";");
             }
 
             this.EmitExtraData(writer, context);
@@ -127,8 +136,7 @@ public abstract class BaseReferenceTypeSchemaModel : BaseSchemaModel
 
             foreach (var property in this.properties)
             {
-                string name = property.Value.Field.Name;
-                writer.AppendLine($"this.{name} = {context.FullyQualifiedCloneMethodName}(source.{name});");
+                writer.AppendLine($"this.{property.Value.FieldName} = {context.FullyQualifiedCloneMethodName}(source.{property.Value.FieldName});");
             }
 
             writer.AppendLine("this.OnInitialized(null);");
@@ -145,6 +153,12 @@ public abstract class BaseReferenceTypeSchemaModel : BaseSchemaModel
             }
 
             writer.AppendLine("#pragma warning disable CS8618"); // nullable
+
+            if (context.Options.MutationTestingMode)
+            {
+                writer.AppendLine($"[{typeof(ExcludeFromCodeCoverageAttribute).GetCompilableTypeName()}]");
+            }
+
             writer.AppendLine($"public {this.Name}()");
             using (writer.WithBlock())
             {
@@ -171,25 +185,13 @@ public abstract class BaseReferenceTypeSchemaModel : BaseSchemaModel
         writer.AppendLine("#pragma warning restore CS8618"); // nullable
     }
 
-    private void EmitPoolableObject(CodeWriter writer, CompileContext context)
-    {
-        if (context.Options.GeneratePoolableObjects == true)
-        {
-            writer.AppendLine("/// <inheritdoc />");
-            writer.AppendLine("public virtual void ReturnToPool(bool unsafeForce = false)");
-            using (writer.WithBlock())
-            {
-            }
-        }
-    }
-
     protected virtual void EmitStaticConstructor(CodeWriter writer, CompileContext context)
     {
         writer.AppendLine($"static {this.Name}()");
         using (writer.WithBlock())
         {
             var keyProperty = this.properties.Values.SingleOrDefault(p => p.Field.Key);
-            if (keyProperty is not null)
+            if (keyProperty is not null && context.CompilePass == CodeWritingPass.LastPass)
             {
                 writer.AppendLine($"global::FlatSharp.SortedVectorHelpers.RegisterKeyLookup<{this.Name}, {keyProperty.Field.Type.ResolveTypeOrElementTypeName(this.Schema, keyProperty.Attributes)}>(x => x.{keyProperty.FieldName}, {keyProperty.Index});");
             }

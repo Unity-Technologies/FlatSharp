@@ -1,6 +1,9 @@
 ﻿
 attribute "fs_serializer";
 attribute "fs_valueStruct";
+attribute "fs_setter";
+attribute "fs_defaultCtor";
+attribute "fs_partialProperty";
 
 namespace FlatSharpEndToEndTests.Required;
 
@@ -24,6 +27,7 @@ table RequiredTable (fs_serializer)
     F : ValueStruct (required);
 }
 
+
 table NonRequiredTable (fs_serializer)
 {
     A : string;
@@ -32,4 +36,23 @@ table NonRequiredTable (fs_serializer)
     D : [ ubyte ];
     E : RefStruct;
     F : ValueStruct;
+}
+
+table RequiredTable_Setters (fs_serializer, fs_defaultCtor:"None")
+{
+    pub : string (required, fs_setter:"Public");
+    pub_init : string (required, fs_setter:"PublicInit");
+    prot : string (required, fs_setter:"Protected");
+    protected_internal : string (required, fs_setter:"ProtectedInternal");
+    protected_init : string (required, fs_setter:"ProtectedInit");
+    protected_internal_init : string (required, fs_setter:"ProtectedInternalInit");
+    none : string (required, fs_setter:"None");
+    
+    pub_partial : string (required, fs_setter:"Public", fs_partialProperty);
+    pub_init_partial : string (required, fs_setter:"PublicInit", fs_partialProperty);
+    prot_partial : string (required, fs_setter:"Protected", fs_partialProperty);
+    protected_internal_partial : string (required, fs_setter:"ProtectedInternal", fs_partialProperty);
+    protected_init_partial : string (required, fs_setter:"ProtectedInit", fs_partialProperty);
+    protected_internal_init_partial : string (required, fs_setter:"ProtectedInternalInit", fs_partialProperty);
+    none_partial : string (required, fs_setter:"None", fs_partialProperty);
 }

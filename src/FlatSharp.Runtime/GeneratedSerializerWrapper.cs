@@ -39,7 +39,8 @@ internal class GeneratedSerializerWrapper<T> : ISerializer<T>, ISerializer where
         Func<string?> generatedCSharp)
     {
         this.lazyCSharp = new Lazy<string?>(generatedCSharp);
-        this.innerSerializer = innerSerializer ?? throw new ArgumentNullException(nameof(innerSerializer));
+        this.innerSerializer = innerSerializer ?? FSThrow.ArgumentNull<IGeneratedSerializer<T>>(nameof(innerSerializer));
+
         this.sharedStringWriter = new ThreadLocal<ISharedStringWriter?>(() => new SharedStringWriter());
         this.remainingDepthLimit = 1000; // sane default.
         this.option = option;
@@ -57,15 +58,13 @@ internal class GeneratedSerializerWrapper<T> : ISerializer<T>, ISerializer where
 
     public Type RootType => typeof(T);
 
-    public string? CSharp => this.lazyCSharp.Value;
-
     public FlatBufferDeserializationOption DeserializationOption => this.option;
 
     public int GetMaxSize(T item)
     {
         if (item is null)
         {
-            throw new ArgumentNullException(nameof(item), "The root table may not be null.");
+            FSThrow.ArgumentNull(nameof(item), "The root table may not be null.");
         }
 
         if (this.enableMemoryCopySerialization &&
@@ -86,11 +85,12 @@ internal class GeneratedSerializerWrapper<T> : ISerializer<T>, ISerializer where
 
     int ISerializer.GetMaxSize(object item)
     {
+
         return item switch
         {
             T t => this.GetMaxSize(t),
-            null => throw new ArgumentNullException(nameof(item)),
-            _ => throw new ArgumentException($"Argument was not of the correct type. Type = {item.GetType().FullName}, Expected Type = {typeof(T).FullName}")
+            null => FSThrow.ArgumentNull<int>(nameof(item)),
+            _ => FSThrow.Argument<int>($"Argument was not of the correct type. Type = {item.GetType().FullName}, Expected Type = {typeof(T).FullName}"),
         };
     }
 
@@ -103,12 +103,12 @@ internal class GeneratedSerializerWrapper<T> : ISerializer<T>, ISerializer where
     {
         if (buffer.Length >= int.MaxValue / 2)
         {
-            throw new ArgumentOutOfRangeException("Buffer must be <= 1GB in size.");
+            FSThrow.Argument("Buffer must be <= 1GB in size.");
         }
 
         if (buffer.Length <= 2 * sizeof(uint))
         {
-            throw new ArgumentException("Buffer is too small to be valid!");
+            FSThrow.Argument("Buffer is too small to be valid!");
         }
 
         var parseArgs = new GeneratedSerializerParseArguments(0, this.remainingDepthLimit);
@@ -119,30 +119,26 @@ internal class GeneratedSerializerWrapper<T> : ISerializer<T>, ISerializer where
         switch (option ?? this.option)
         {
             case FlatBufferDeserializationOption.Lazy:
-                item = buffer.InvokeLazyParse(inner, in parseArgs);
+                item = inner.ParseLazy(buffer, in parseArgs);
                 break;
 
             case FlatBufferDeserializationOption.Greedy:
-                item = buffer.InvokeGreedyParse(inner, in parseArgs);
+                item = inner.ParseGreedy(buffer, in parseArgs);
                 break;
 
             case FlatBufferDeserializationOption.GreedyMutable:
-                item = buffer.InvokeGreedyMutableParse(inner, in parseArgs);
+                item = inner.ParseGreedyMutable(buffer, in parseArgs);
                 break;
 
             case FlatBufferDeserializationOption.Progressive:
-                item = buffer.InvokeProgressiveParse(inner, in parseArgs);
+                item = inner.ParseProgressive(buffer, in parseArgs);
                 break;
 
             default:
-                throw new InvalidOperationException("Unexpected deserialization mode: " + this.option);
+                item = FSThrow.InvalidOperation<T>("Unexpected deserialization mode");
+                break;
         }
-
-        if (item is IPoolableObjectDebug deserializedObject)
-        {
-            deserializedObject.IsRoot = true;
-        }
-
+        
         return item;
     }
 
@@ -153,15 +149,12 @@ internal class GeneratedSerializerWrapper<T> : ISerializer<T>, ISerializer where
     {
         if (item is null)
         {
-            throw new ArgumentNullException(nameof(item), "The root table may not be null.");
+            FSThrow.ArgumentNull(nameof(item), "The root table may not be null.");
         }
 
         if (destination.Length <= 8)
         {
-            throw new BufferTooSmallException
-            {
-                SizeNeeded = this.GetMaxSize(item)
-            };
+            FSThrow.BufferTooSmall(this.GetMaxSize(item));
         }
 
         if (this.enableMemoryCopySerialization &&
@@ -173,16 +166,12 @@ internal class GeneratedSerializerWrapper<T> : ISerializer<T>, ISerializer where
 
             if (destination.Length < inputBuffer.Length)
             {
-                throw new BufferTooSmallException { SizeNeeded = inputBuffer.Length };
+                FSThrow.BufferTooSmall(inputBuffer.Length);
             }
 
             inputBuffer.GetReadOnlySpan().CopyTo(destination);
             return inputBuffer.Length;
         }
-
-#if DEBUG
-        int expectedMaxSize = this.GetMaxSize(item);
-#endif
 
         var serializationContext = SerializationContext.ThreadLocalContext.Value!;
         serializationContext.Reset(destination.Length);
@@ -198,7 +187,7 @@ internal class GeneratedSerializerWrapper<T> : ISerializer<T>, ISerializer where
                 Debug.Assert(!sharedStringWriter.IsDirty);
             }
 
-            writer.InvokeWrite(this.innerSerializer, destination, item, serializationContext);
+            this.innerSerializer.Write(writer, destination, item, serializationContext);
 
             if (sharedStringWriter?.IsDirty == true)
             {
@@ -214,11 +203,6 @@ internal class GeneratedSerializerWrapper<T> : ISerializer<T>, ISerializer where
             throw;
         }
 
-#if DEBUG
-        Trace.WriteLine($"Serialized Size: {serializationContext.Offset + 1}, Max Size: {expectedMaxSize}");
-        Debug.Assert(serializationContext.Offset <= expectedMaxSize - 1);
-#endif
-
         return serializationContext.Offset;
     }
 
@@ -227,16 +211,18 @@ internal class GeneratedSerializerWrapper<T> : ISerializer<T>, ISerializer where
         return item switch
         {
             T t => this.Write(writer, destination, t),
-            null => throw new ArgumentNullException(nameof(item)),
-            _ => throw new ArgumentException($"Argument was not of the correct type. Type = {item.GetType().FullName}, Expected Type = {typeof(T).FullName}")
+            null => FSThrow.ArgumentNull<int>(nameof(item)),
+            _ => FSThrow.Argument<int>($"Argument was not of the correct type. Type = {item.GetType().FullName}, Expected Type = {typeof(T).FullName}")
         };
     }
 
+    [ExcludeFromCodeCoverage]
     public ISerializer<T> WithSettings(Action<SerializerSettings> settingsCallback)
     {
         return this.WithSettingsCore(settingsCallback);
     }
 
+    [ExcludeFromCodeCoverage]
     ISerializer ISerializer.WithSettings(Action<SerializerSettings> settingsCallback)
     {
         return this.WithSettingsCore(settingsCallback);

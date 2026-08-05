@@ -38,19 +38,21 @@ public class StructMemberModel : ItemMemberModel
     {
         base.Validate();
 
-        if (this.ItemTypeModel.SerializeMethodRequiresContext)
-        {
-            throw new InvalidFlatBufferDefinitionException($"The type model for struct member '{this.FriendlyName}' requires a serialization context, but Structs do not have one.");
-        }
+        FlatSharpInternal.Assert(
+            !this.ItemTypeModel.SerializeMethodRequiresContext,
+            $"The type model for struct member '{this.FriendlyName}' requires a serialization context, but Structs do not have one.");
 
-        if (this.Attribute.Required)
-        {
-            throw new InvalidFlatBufferDefinitionException($"Struct member '{this.FriendlyName}' declared the Required attribute. Required is not valid inside structs.");
-        }
+        FlatSharpInternal.Assert(
+            !this.Attribute.Required,
+            $"Struct member '{this.FriendlyName}' declared the Required attribute. Required is not valid inside structs.");
 
-        if (this.Attribute.SharedString)
+        FlatSharpInternal.Assert(
+            !this.Attribute.SharedString,
+            $"Struct member '{this.FriendlyName}' declared the SharedString attribute. SharedString is not valid inside structs.");
+
+        if (this.Attribute.Key)
         {
-            throw new InvalidFlatBufferDefinitionException($"Struct member '{this.FriendlyName}' declared the SharedString attribute. SharedString is not valid inside structs.");
+            throw new InvalidFlatBufferDefinitionException($"Struct member '{this.FriendlyName}' declared the 'key' attribute. FlatSharp does not support keys on struct members.");
         }
     }
 
@@ -70,7 +72,7 @@ public class StructMemberModel : ItemMemberModel
     {
         context = context with
         {
-            OffsetVariableName = $"{context.OffsetVariableName} + {this.Offset}",
+            OffsetVariableName = $"{context.OffsetVariableName}{GetOffsetAdjustment(this.Offset)}",
         };
 
         return $"return {context.GetParseInvocation(this.ItemTypeModel.ClrType)};";
@@ -82,9 +84,19 @@ public class StructMemberModel : ItemMemberModel
     {
         context = context with
         {
-            OffsetVariableName = $"{context.OffsetVariableName} + {this.Offset}"
+            OffsetVariableName = $"{context.OffsetVariableName}{GetOffsetAdjustment(this.Offset)}"
         };
 
         return context.GetSerializeInvocation(this.ItemTypeModel.ClrType) + ";";
+    }
+
+    private static string GetOffsetAdjustment(int offset)
+    {
+        if (offset == 0)
+        {
+            return string.Empty;
+        }
+
+        return $"+ {offset}";
     }
 }

@@ -18,6 +18,7 @@ using FlatSharp.Compiler.Schema;
 using FlatSharp.Attributes;
 using System.Text;
 using FlatSharp.CodeGen;
+using System.Security.Cryptography.X509Certificates;
 
 namespace FlatSharp.Compiler.SchemaModel;
 
@@ -38,6 +39,7 @@ public record PropertyFieldModel
         this.CustomGetter = customGetter;
         this.FieldName = field.Name;
         this.Index = index;
+        this.BackingFieldName = null;
 
         new FlatSharpAttributeValidator(elementType, $"{this.Parent.FullName}.{this.FieldName}")
         {
@@ -60,13 +62,21 @@ public record PropertyFieldModel
             },
             ForceWriteValidator = _ => this.ValidWhenParentIs<TableSchemaModel>(),
             WriteThroughValidator = _ => AttributeValidationResult.Valid,
+            PartialPropertyValidator = _ => AttributeValidationResult.Valid,
         }.Validate(this.Attributes);
+
+        if (this.IsPartial)
+        {
+            this.BackingFieldName = $"__flatsharp_backing_field_{this.FieldName}";
+        }
 
         FlatSharpInternal.Assert(this.Field.Type.BaseType.IsKnown(), "Base type was not known");
         FlatSharpInternal.Assert(
             this.Field.Type.ElementType == BaseType.None ||
             this.Field.Type.ElementType.IsKnown(), "Element type was not known");
     }
+
+    private string? BackingFieldName { get; }
 
     public bool ProtectedGetter { get; init; }
 
@@ -83,6 +93,8 @@ public record PropertyFieldModel
     public string FieldName { get; init; }
 
     public int Index { get; init; }
+
+    public bool IsPartial => this.Attributes.PartialProperty ?? this.Parent.Attributes.PartialProperty ?? false;
 
     public bool HasDefaultValue => this.Field.DefaultDouble != 0 || this.Field.DefaultInteger != 0;
 
@@ -125,24 +137,45 @@ public record PropertyFieldModel
         return true;
     }
 
-    public void WriteCode(CodeWriter writer)
+    public void WriteCode(CompileContext context, CodeWriter writer)
     {
         writer.AppendSummaryComment(this.Field.Documentation);
         writer.AppendLine(this.GetAttribute());
 
-        string setter = this.Attributes.SetterKind switch
+        this.Attributes.EmitAsMetadata(writer);
+
+        SetterKind setterKind = this.Attributes.SetterKind ?? SetterKind.Public;
+
+        string setter = setterKind switch
         {
-            SetterKind.PublicInit => "init;",
-            SetterKind.Protected => "protected set;",
-            SetterKind.ProtectedInternal => "protected internal set;",
-            SetterKind.ProtectedInit => "protected init;",
-            SetterKind.ProtectedInternalInit => "protected internal init;",
-            SetterKind.Private => "private set;",
-            SetterKind.None => string.Empty,
-            SetterKind.Public or _ => "set;",
+            SetterKind.PublicInit => "init",
+            SetterKind.Protected => "protected set",
+            SetterKind.ProtectedInternal => "protected internal set",
+            SetterKind.ProtectedInit => "protected init",
+            SetterKind.ProtectedInternalInit => "protected internal init",
+            SetterKind.None => "private set",
+            SetterKind.Public or _ => "set",
         };
 
+        bool hasBackingField = !string.IsNullOrEmpty(this.BackingFieldName);
+
+        if (!string.IsNullOrEmpty(setter))
+        {
+            if (hasBackingField)
+            {
+                setter = $"{setter} => this.{this.BackingFieldName} = value";
+            }
+
+            setter = setter + ";";
+        }
+
         string typeName = this.GetTypeName();
+        string getter = "get;";
+
+        if (hasBackingField)
+        {
+            getter = $"get => this.{this.BackingFieldName};";
+        }
 
         string access = "public";
         if (this.ProtectedGetter)
@@ -150,9 +183,18 @@ public record PropertyFieldModel
             access = "protected";
         }
 
-        string property = $"{access} virtual {typeName} {this.FieldName} {{ get; {setter} }}";
-        if (this.Field.Required == true)
+        string partial = string.Empty;
+        if (context.CompilePass == CodeWritingPass.LastPass && this.IsPartial)
         {
+            partial = "partial";
+        }
+
+        string property = $"{access} virtual {partial} {typeName} {this.FieldName} {{ {getter} {setter} }}";
+
+        bool isPublicSetter = setterKind == SetterKind.Public || setterKind == SetterKind.PublicInit;
+        if (this.Field.Required == true && isPublicSetter)
+        {
+            // Required keyword is tricky with visibility and setters.
             writer.BeginPreprocessorIf(CSharpHelpers.Net7PreprocessorVariable, $"required {property}")
                   .Else(property)
                   .Flush();
@@ -160,6 +202,12 @@ public record PropertyFieldModel
         else
         {
             writer.AppendLine(property);
+        }
+
+        if (hasBackingField)
+        {
+            writer.AppendLine("[System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]");
+            writer.AppendLine($"private {typeName} {this.BackingFieldName};");
         }
     }
 
@@ -206,7 +254,7 @@ public record PropertyFieldModel
                 return "true";
             }
 
-            return $"({typeName}){defaultInt}";
+            return $"({typeName})({defaultInt})";
         }
     }
 
@@ -242,11 +290,11 @@ public record PropertyFieldModel
 
         if (!string.IsNullOrEmpty(this.CustomGetter))
         {
-            customAccessor = $"[{nameof(FlatBufferMetadataAttribute)}({nameof(FlatBufferMetadataKind)}.{nameof(FlatBufferMetadataKind.Accessor)}, \"{this.CustomGetter}\")]";
+            customAccessor = $"[{nameof(FlatBufferMetadataAttribute)}({nameof(FlatBufferMetadataKind)}.{nameof(FlatBufferMetadataKind.Accessor)}, \"\", \"{this.CustomGetter}\")]";
         }
 
-        bool emitForcedWrite = this.Attributes.ForceWrite == true
-                            || (this.Attributes.ForceWrite == null && this.Parent.Attributes.ForceWrite == true && this.Field.Type.BaseType.IsScalar());
+        bool emitForcedWrite = this.Attributes.ForceWrite ?? this.Parent.Attributes.ForceWrite ?? false;
+        emitForcedWrite &= this.Field.Type.BaseType.IsScalar();
 
         if (emitForcedWrite)
         {

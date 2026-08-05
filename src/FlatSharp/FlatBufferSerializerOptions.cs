@@ -26,24 +26,15 @@ public record class FlatBufferSerializerOptions
     /// </summary>
     /// <param name="option">The deserialization mode.</param>
     public FlatBufferSerializerOptions(
-        FlatBufferDeserializationOption option = FlatBufferDeserializationOption.Default,
-        bool devirtualize = true)
+        FlatBufferDeserializationOption option = FlatBufferDeserializationOption.Default)
     {
         if (!Enum.IsDefined(typeof(FlatBufferDeserializationOption), option))
         {
             throw new ArgumentException(nameof(option), $"The value '{option}' is not defined in '{nameof(FlatBufferDeserializationOption)}'.");
         }
 
-        this.Devirtualize = devirtualize;
         this.DeserializationOption = option;
     }
-
-    /// <summary>
-    /// Indicates that FlatSharp should try to devirtualize <see cref="System.Collections.Generic.IList{T}" /> vectors.
-    /// Enabling this expands the size of the generated code but allows for must faster execution when using well-known
-    /// list types.
-    /// </summary>
-    public bool Devirtualize { get; }
 
     /// <summary>
     /// The deserialization mode.
@@ -81,9 +72,6 @@ public record class FlatBufferSerializerOptions
     /// <summary>
     /// Indicates if the object is immutable OR changes to the object are guaranteed to be written back to the buffer.
     /// </summary>
-    /// <remarks>
-    /// VectorCacheMutable is not eligible here, since only some changes are written back.
-    /// </remarks>
     public bool CanSerializeWithMemoryCopy => this.DeserializationOption == FlatBufferDeserializationOption.Lazy ||
                                               this.DeserializationOption == FlatBufferDeserializationOption.Progressive;
 
@@ -99,4 +87,9 @@ public record class FlatBufferSerializerOptions
     /// is not wholly sufficient to enable them.
     /// </summary>
     public bool EnableValueStructMemoryMarshalDeserialization { get; set; } = true;
+
+    /// <summary>
+    /// Prefer 'file' visibility over 'internal'.
+    /// </summary>
+    public bool EnableFileVisibility { get; set; }
 }

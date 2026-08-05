@@ -35,27 +35,13 @@ public class ListVectorTypeModel : BaseVectorTypeModel
 
         FlatSharpInternal.Assert(
             genericDef == typeof(IList<>) || genericDef == typeof(IReadOnlyList<>),
-            $"Cannot build a vector from type: {this.ClrType}. Only List, ReadOnlyList, Memory, ReadOnlyMemory, and Arrays are supported.");
+            $"Cannot build a vector from type: {this.ClrType}. Only List, ReadOnlyList, Memory, and ReadOnlyMemory.");
 
         this.isReadOnly = genericDef == typeof(IReadOnlyList<>);
         return this.ClrType.GetGenericArguments()[0];
     }
 
     protected override string CreateLoop(
-        FlatBufferSerializerOptions options,
-        string vectorVariableName,
-        string numberofItemsVariableName,
-        string expectedVariableName,
-        string body) => CreateLoopStatic(
-            this.ItemTypeModel,
-            options,
-            vectorVariableName,
-            numberofItemsVariableName,
-            expectedVariableName,
-            body);
-
-    internal static string CreateLoopStatic(
-        ITypeModel typeModel,
         FlatBufferSerializerOptions options,
         string vectorVariableName,
         string numberofItemsVariableName,
@@ -73,15 +59,12 @@ public class ListVectorTypeModel : BaseVectorTypeModel
                 }}";
         }
 
-        if (options.Devirtualize)
-        {
-            return $@"
-                if ({vectorVariableName} is {typeModel.GetCompilableTypeName()}[] array)
+        return $@"
+                if ({vectorVariableName} is {this.ItemTypeModel.GGCTN()}[] array)
                 {{
-                    int length = array.Length;
                     {ListBody("array", "array.Length")}
                 }}
-                else if ({vectorVariableName} is List<{typeModel.GetCompilableTypeName()}> realList)
+                else if ({vectorVariableName} is List<{this.ItemTypeModel.GGCTN()}> realList)
                 {{
                     {ListBody("realList", "realList.Count")}
                 }}
@@ -89,11 +72,6 @@ public class ListVectorTypeModel : BaseVectorTypeModel
                 {{
                     {ListBody(vectorVariableName, numberofItemsVariableName)}
                 }}";
-        }
-        else
-        {
-            return ListBody(vectorVariableName, numberofItemsVariableName);
-        }
     }
 
     public override CodeGeneratedMethod CreateParseMethodBody(ParserCodeGenContext context)
@@ -101,75 +79,42 @@ public class ListVectorTypeModel : BaseVectorTypeModel
         bool isEverWriteThrough = ValidateWriteThrough(
             writeThroughSupported: !this.isReadOnly,
             this,
-            context.AllFieldContexts,
-            context.Options);
+            this.typeModelContainer,
+            context.AllFieldContexts);
 
-        (string vectorClassDef, string vectorClassName) = FlatBufferVectorHelpers.CreateVectorItemAccessor(
+        Func<ITypeModel, int, ParserCodeGenContext, bool, (string classDef, string className)>? createVector = context.Options.DeserializationOption switch
+        {
+            FlatBufferDeserializationOption.Lazy => FlatBufferVectorHelpers.CreateLazyVector,
+            FlatBufferDeserializationOption.Progressive => FlatBufferVectorHelpers.CreateProgressiveVector,
+            FlatBufferDeserializationOption.Greedy => FlatBufferVectorHelpers.CreateGreedyVector,
+            FlatBufferDeserializationOption.GreedyMutable => FlatBufferVectorHelpers.CreateGreedyMutableVector,
+            _ => null,
+        };
+
+        FlatSharpInternal.Assert(createVector is not null, "unexpected deserialization mode");
+
+        (string classDef, string className) = createVector(
             this.ItemTypeModel,
             this.PaddedMemberInlineSize,
             context,
             isEverWriteThrough);
 
-        string accessorClassName = $"{vectorClassName}<{context.InputBufferTypeName}>";
-
-        string createFlatBufferVector =
-            $@"FlatBufferVectorBase<{this.ItemTypeModel.GetGlobalCompilableTypeName()}, {context.InputBufferTypeName}, {accessorClassName}>.GetOrCreate(
-                    {context.InputBufferVariableName}, 
-                    new {accessorClassName}(
-                        {context.OffsetVariableName} + {context.InputBufferVariableName}.{nameof(InputBufferExtensions.ReadUOffset)}({context.OffsetVariableName}),
-                        {context.InputBufferVariableName}),
+        string body =
+           $@"return new {className}<{context.InputBufferTypeName}>(
+                    {context.InputBufferVariableName},
+                    {context.OffsetVariableName} + {context.InputBufferVariableName}.{nameof(InputBufferExtensions.ReadUOffset)}({context.OffsetVariableName}),
                     {context.RemainingDepthVariableName},
-                    {context.TableFieldContextVariableName},
-                    {typeof(FlatBufferDeserializationOption).GetGlobalCompilableTypeName()}.{context.Options.DeserializationOption})";
+                    {context.TableFieldContextVariableName});";
 
-        return new CodeGeneratedMethod(CreateParseBody(this.ItemTypeModel, createFlatBufferVector, accessorClassName, context, isEverWriteThrough)) { ClassDefinition = vectorClassDef };
+        return new CodeGeneratedMethod(body)
+        {
+            ClassDefinition = classDef,
+            IsMethodInline = true,
+        };
     }
 
-    internal static string CreateParseBody(
-        ITypeModel itemTypeModel,
-        string createFlatBufferVector,
-        string itemAccessorTypeName,
-        ParserCodeGenContext context,
-        bool isEverWriteThrough = false)
+    public override string GetDeserializedTypeName(FlatBufferDeserializationOption option, string inputBufferTypeName)
     {
-        FlatSharpInternal.Assert(!string.IsNullOrEmpty(context.TableFieldContextVariableName), "expecting table field context");
-
-        if (context.Options.DeserializationOption == FlatBufferDeserializationOption.GreedyMutable && isEverWriteThrough)
-        {
-            string body = $$"""
-                    
-                var result = {{createFlatBufferVector}};
-                if ({{context.TableFieldContextVariableName}}.{{nameof(TableFieldContext.WriteThrough)}})
-                {
-                    // WriteThrough vectors are not mutable in greedymutable mode.
-                    return ImmutableList<{{itemTypeModel.ClrType.GetGlobalCompilableTypeName()}}>.GetOrCreate(result);
-                }
-                else
-                {
-                    return PoolableList<{{itemTypeModel.ClrType.GetGlobalCompilableTypeName()}}>.GetOrCreate(result);
-                }
-            """;
-
-            return body;
-        }
-        else if (context.Options.GreedyDeserialize)
-        {
-            string transform = "ImmutableList";
-            if (context.Options.GenerateMutableObjects)
-            {
-                transform = "PoolableList";
-            }
-
-            return $"return {transform}<{itemTypeModel.ClrType.GetGlobalCompilableTypeName()}>.GetOrCreate({createFlatBufferVector});";
-        }
-        else if (context.Options.Lazy)
-        {
-            return $"return {createFlatBufferVector};";
-        }
-        else
-        {
-            FlatSharpInternal.Assert(context.Options.Progressive, "expecting progressive");
-            return $"return FlatBufferProgressiveVector<{itemTypeModel.GetGlobalCompilableTypeName()}, {context.InputBufferTypeName}, {itemAccessorTypeName}>.GetOrCreate({createFlatBufferVector});";
-        }
+        return this.GetGlobalCompilableTypeName();
     }
 }

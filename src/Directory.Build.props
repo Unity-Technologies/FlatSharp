@@ -1,0 +1,53 @@
+<Project>
+  <PropertyGroup>
+    <SignAssembly Condition=" '$(SignAssembly)' == '' ">true</SignAssembly>
+    <DelaySign>false</DelaySign>
+    <AssemblyOriginatorKeyFile>$(MSBuildThisFileDirectory)\..\misc\strongname.snk</AssemblyOriginatorKeyFile>
+    <LangVersion>13.0</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!--
+      NU1507 is a Unity fork addition. Central package management makes NuGet insist
+      on package source mapping whenever more than one source is configured, and our
+      build agents legitimately have several. It belongs here rather than on the
+      command line: a -p:NoWarn= switch becomes an MSBuild global property, which
+      project-level <NoWarn> cannot append to, so it silently discards the CS1591 and
+      CS8032 suppressions and TreatWarningsAsErrors turns those into build failures.
+    -->
+    <NoWarn>$(NoWarn);CS8032;NU1507</NoWarn>
+    <DisableFastUpToDateCheck>True</DisableFastUpToDateCheck>
+    <PipelineBuild>false</PipelineBuild>
+    <PipelineBuild Condition=" '$(AppVeyorBuild)' == 'true' or '$(CoverageBuild)' == 'true'">true</PipelineBuild>
+    <IsPackable>false</IsPackable>
+    <IsPackable Condition=" '$(PipelineBuild)' == 'true' ">true</IsPackable>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(SignAssembly)' != 'false' ">
+    <DefineConstants>$(DefineConstants);SIGNED_BUILD</DefineConstants>
+  </PropertyGroup>
+  
+  <PropertyGroup>
+    <Version>7.9.0</Version>
+    <PackageVersion>7.9.0</PackageVersion>
+    <AssemblyVersion>$(Version)</AssemblyVersion>
+    <Authors>The FlatSharp Authors</Authors>
+    <Description>FlatSharp is a fast, idiomatic implementation of the FlatBuffer binary format.</Description>
+    <Copyright>2025</Copyright>
+    <RepositoryUrl>https://github.com/jamescourtney/FlatSharp/</RepositoryUrl>
+    <PackageTags>flatbuffers serialization flatbuffer flatsharp</PackageTags>
+    <PackageReleaseNotes>Release notes at https://github.com/jamescourtney/FlatSharp/releases</PackageReleaseNotes>
+    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>    
+    <NuspecProperties>version=$(PackageVersion);releaseNotes=$(PackageReleaseNotes)</NuspecProperties>
+    <PackageReadmeFile>README.nuget.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)README.nuget.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+
+  <Import Project="netfx.props" />
+
+</Project>

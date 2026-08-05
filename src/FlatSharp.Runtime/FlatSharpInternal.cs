@@ -14,6 +14,10 @@
  * limitations under the License.
  */
 
+using System.IO;
+using System.Reflection;
+using System.Text;
+
 namespace FlatSharp.Internal;
 
 public static class FlatSharpInternal
@@ -31,17 +35,27 @@ public static class FlatSharpInternal
         {
             ThrowAssertFailed(message, memberName, fileName, lineNumber);
         }
+
+        [DoesNotReturn]
+        static void ThrowAssertFailed(string message, string memberName, string fileName, int lineNumber)
+        {
+            throw new FlatSharpInternalException(message, memberName, fileName, lineNumber);
+        }
     }
 
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    [DoesNotReturn]
-    private static void ThrowAssertFailed(
-        string message,
-        string memberName,
-        string fileName,
-        int lineNumber)
+    /// <summary>
+    /// Assert that the FlatSharp.Runtime assembly version matches the FlatSharp.Compiler assembly version.
+    /// </summary>
+    public static void AssertFlatSharpRuntimeVersionMatches(string compilerVersion)
     {
-        throw new FlatSharpInternalException(message, memberName, fileName, lineNumber);
+        string? runtimeVersion = typeof(FlatSharpInternal).Assembly.GetCustomAttribute<AssemblyFileVersionAttribute>()?.Version;
+
+        FlatSharpInternal.Assert(!string.IsNullOrEmpty(runtimeVersion), "FlatSharp.Runtime version not found.");
+
+        if (runtimeVersion != compilerVersion)
+        {
+            FSThrow.InvalidOperation($"FlatSharp runtime version didn't match compiler version. Ensure all FlatSharp NuGet packages use the same version. Runtime = '{runtimeVersion}', Compiler = '{compilerVersion}'.");
+        }
     }
 
     /// <summary>
@@ -53,22 +67,46 @@ public static class FlatSharpInternal
     {
         if (Unsafe.SizeOf<T>() != expectedSize)
         {
+            Throw(expectedSize);
+        }
+
+        [DoesNotReturn]
+        static void Throw(int expectedSize)
+        {
             string message = $"Flatsharp expected type: {typeof(T).FullName} to have size {expectedSize}. Unsafe.SizeOf reported size {Unsafe.SizeOf<T>()}.";
             throw new FlatSharpInternalException(message);
         }
     }
 
     /// <summary>
-    /// Asserts that the system is a LE architecture.
+    /// Asserts that the system is a LE architecture. This method is inlined because the condition can be evaluated at JIT time.
     /// </summary>
     [ExcludeFromCodeCoverage]
-    [MethodImpl(MethodImplOptions.AggressiveInlining)] //inline keeps the JIT codegen the same as this method should be known at JIT time.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void AssertLittleEndian()
     {
         if (!BitConverter.IsLittleEndian)
         {
-            string message = $"FlatSharp encountered a code path that is only functional on little endian architectures.";
-            throw new FlatSharpInternalException(message);
+            Throw();
+        }
+
+        [DoesNotReturn]
+        static void Throw() => throw new FlatSharpInternalException("FlatSharp encountered a code path that is only functional on little endian architectures.");
+    }
+
+    /// <summary>
+    /// Validates that the size of TElement is a multiple of the alignment. This ensures that items can be laid out
+    /// sequentially with no gaps between them. Inlining this method should allow this check to be elided as the alignment is a constant from the callsite.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void AssertWellAligned<TElement>(int alignment)
+        where TElement : unmanaged
+    {
+        var size = Unsafe.SizeOf<TElement>();
+
+        if (size % alignment != 0)
+        {
+            FSThrow.InvalidOperation_SizeNotMultipleOfAlignment(typeof(TElement), size, alignment);
         }
     }
 }

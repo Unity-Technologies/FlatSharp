@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+using FlatSharp.CodeGen;
 using FlatSharp.Compiler.Schema;
 
 namespace FlatSharp.Compiler.SchemaModel;
@@ -79,6 +80,7 @@ public class RpcServiceSchemaModel : BaseSchemaModel
         }
 
         writer.AppendSummaryComment(this.service.Documentation);
+        this.Attributes.EmitAsMetadata(writer);
         writer.AppendLine($"public static partial class {this.Name}");
         using (writer.WithBlock())
         {
@@ -95,7 +97,7 @@ public class RpcServiceSchemaModel : BaseSchemaModel
                     public static ISerializer<T> Value
                     {{
                         get => __value;
-                        set => __value = value ?? throw new ArgumentNullException(nameof(value));
+                        set => __value = value ?? {typeof(FSThrow).GGCTN()}.{nameof(FSThrow.ArgumentNull)}<ISerializer<T>>(nameof(value));
                     }}
                 }}
                 ");
@@ -217,7 +219,7 @@ public class RpcServiceSchemaModel : BaseSchemaModel
             {
                 foreach (var method in this.calls)
                 {
-                    writer.AppendLine($".AddMethod({methodNameMap[method.Name]}, serviceImpl == null ? null : serviceImpl.{method.Name})");
+                    writer.AppendLine($".AddMethod({methodNameMap[method.Name]}, serviceImpl == null ? ({this.GetServerHandlerDelegateType(method)}?)null : serviceImpl.{method.Name})");
                 }
 
                 writer.AppendLine(".Build();");
@@ -234,7 +236,7 @@ public class RpcServiceSchemaModel : BaseSchemaModel
             foreach (var method in this.calls)
             {
                 string serverDelegate = GetServerHandlerDelegate(method);
-                writer.AppendLine($"serviceBinder.AddMethod({methodNameMap[method.Name]}, serviceImpl == null ? null : {serverDelegate});");
+                writer.AppendLine($"serviceBinder.AddMethod({methodNameMap[method.Name]}, serviceImpl == null ? ({this.GetServerHandlerDelegateType(method)}?)null : {serverDelegate});");
             }
             writer.AppendLine("#pragma warning restore CS8604");
         }
@@ -568,7 +570,12 @@ public class RpcServiceSchemaModel : BaseSchemaModel
 
     private string GetServerHandlerDelegate(RpcCallSchemaModel call)
     {
+        return $"new {this.GetServerHandlerDelegateType(call)}(serviceImpl.{call.Name})";
+    }
+
+    private string GetServerHandlerDelegateType(RpcCallSchemaModel call)
+    {
         string methodType = GetGrpcMethodType(call.StreamingType);
-        return $"new {GrpcCore}.{methodType}ServerMethod<{call.RequestType}, {call.ResponseType}>(serviceImpl.{call.Name})";
+        return $"{GrpcCore}.{methodType}ServerMethod<{call.RequestType}, {call.ResponseType}>";
     }
 }

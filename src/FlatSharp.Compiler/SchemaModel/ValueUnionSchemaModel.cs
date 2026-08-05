@@ -49,14 +49,7 @@ public class ValueUnionSchemaModel : BaseSchemaModel
             return false;
         }
 
-        if (context.GeneratePoolableObjects == true)
-        {
-            model = new ReferenceUnionSchemaModel(schema, union);
-        }
-        else
-        {
-            model = new ValueUnionSchemaModel(schema, union);
-        }
+        model = new ValueUnionSchemaModel(schema, union);
 
         return true;
     }
@@ -71,6 +64,7 @@ public class ValueUnionSchemaModel : BaseSchemaModel
         bool generateUnsafeItemsOriginal = context.CompilePass >= CodeWritingPass.LastPass && this.Attributes.UnsafeUnion == true;
         bool generateUnsafeItems = generateUnsafeItemsOriginal;
 
+        HashSet<string> seenTypes = new();
         List<(string resolvedType, EnumVal value, int? size)> innerTypes = new List<(string, EnumVal, int?)>();
         foreach (var inner in this.union.Values.Select(x => x.Value))
         {
@@ -85,6 +79,11 @@ public class ValueUnionSchemaModel : BaseSchemaModel
 
             long discriminator = inner.Value;
             string typeName = inner.UnionType.ResolveTypeOrElementTypeName(this.Schema, this.Attributes);
+            if (!seenTypes.Add(typeName))
+            {
+                ErrorContext.Current.RegisterError($"FlatSharp unions may not contain duplicate types. Union = {this.FullName}");
+                continue;
+            }
 
             int? size = null;
             Type? type = context.PreviousAssembly?.GetType(typeName);
@@ -121,8 +120,15 @@ public class ValueUnionSchemaModel : BaseSchemaModel
         string interfaceName = $"IFlatBufferUnion<{string.Join(", ", innerTypes.Select(x => x.resolvedType))}>";
 
         writer.AppendSummaryComment(this.union.Documentation);
+        this.Attributes.EmitAsMetadata(writer);
         writer.AppendLine("[System.Runtime.CompilerServices.CompilerGenerated]");
         writer.AppendLine($"{Helpers.Visibility(context)} {@unsafe} partial struct {this.Name} : {interfaceName}");
+
+        if (!generateUnsafeItems && context.Options.GenerateMethods)
+        {
+            writer.AppendLine($", System.IEquatable<{this.Name}>");
+        }
+
         using (writer.WithBlock())
         {
             // Generate an internal type enum.
@@ -152,6 +158,20 @@ public class ValueUnionSchemaModel : BaseSchemaModel
             writer.AppendLine();
             writer.AppendLine("public byte Discriminator { get; }");
 
+            if (!generateUnsafeItems && context.Options.GenerateMethods)
+            {
+                writer.AppendLine();
+                writer.AppendLine($"public override bool Equals(object? obj) => obj is {this.Name} other && this.Equals(other);");
+                writer.AppendLine($"public bool Equals({this.Name} other) => (this.Discriminator, this.value).Equals((other.Discriminator, other.value));");
+                writer.AppendLine($"public static bool operator ==({this.Name} left, {this.Name} right) => left.Equals(right);");
+                writer.AppendLine($"public static bool operator !=({this.Name} left, {this.Name} right) => !left.Equals(right);");
+                writer.AppendLine("public override int GetHashCode() => (this.Discriminator, this.value).GetHashCode();");
+                writer.AppendLine();
+                string item = this.union.Values.Count == 0 ? " " : $" this.value ";
+                writer.AppendLine($"public override string ToString() => $\"{this.Name} {{{{ {{{item}}} }}}}\";");
+            }
+
+            int index = 1;
             foreach (var item in innerTypes)
             {
                 Type? propertyClrType = null;
@@ -161,20 +181,23 @@ public class ValueUnionSchemaModel : BaseSchemaModel
                     FlatSharpInternal.Assert(previousType is not null, "PreviousType was null");
 
                     propertyClrType = previousType
-                        .GetProperty($"Item{item.value.Value}", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)?
+                        .GetProperty($"Item{index}", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)?
                         .PropertyType;
 
                     FlatSharpInternal.Assert(propertyClrType is not null, "Couldn't find property");
                 }
 
                 this.WriteConstructor(writer, item.resolvedType, item.value, propertyClrType, generateUnsafeItems);
-                this.WriteUncheckedGetItemMethod(writer, item.resolvedType, item.value, propertyClrType, generateUnsafeItems);
+                this.WriteImplicitOperator(writer, item.resolvedType);
+                this.WriteUncheckedGetItemMethod(writer, index, item.resolvedType, item.value, propertyClrType, generateUnsafeItems);
 
                 writer.AppendLine();
-                writer.AppendLine($"public {item.resolvedType} {item.value.Key} => this.Item{item.value.Value};");
+                new FlatSharpAttributes(item.value.Attributes).EmitAsMetadata(writer);
+                writer.AppendLine($"public {item.resolvedType} {item.value.Key} => this.Item{index};");
 
                 writer.AppendLine();
-                writer.AppendLine($"public {item.resolvedType} Item{item.value.Value}");
+                new FlatSharpAttributes(item.value.Attributes).EmitAsMetadata(writer);
+                writer.AppendLine($"public {item.resolvedType} Item{index}");
                 using (writer.WithBlock())
                 {
                     writer.AppendLine("get");
@@ -183,10 +206,10 @@ public class ValueUnionSchemaModel : BaseSchemaModel
                         writer.AppendLine($"if (this.Discriminator != {item.value.Value})");
                         using (writer.WithBlock())
                         {
-                            writer.AppendLine("throw new InvalidOperationException();");
+                            writer.AppendLine($"{typeof(FSThrow).GGCTN()}.{nameof(FSThrow.InvalidOperation_UnionIsNotOfType)}();");
                         }
 
-                        writer.AppendLine($"return this.UncheckedGetItem{item.value.Value}();");
+                        writer.AppendLine($"return this.UncheckedGetItem{index}();");
                     }
                 }
 
@@ -217,12 +240,15 @@ public class ValueUnionSchemaModel : BaseSchemaModel
                         writer.AppendLine("return false;");
                     }
 
-                    writer.AppendLine($"value = this.UncheckedGetItem{item.value.Value}();");
+                    writer.AppendLine($"value = this.UncheckedGetItem{index}();");
                     writer.AppendLine("return true;");
                 }
+
+                ++index;
             }
 
             this.WriteAcceptMethod(writer, innerTypes);
+            this.WriteMatchMethod(writer, innerTypes);
         }
     }
 
@@ -235,7 +261,7 @@ public class ValueUnionSchemaModel : BaseSchemaModel
         writer.AppendSummaryComment("A convenience interface for implementing a visitor.");
         writer.AppendLine($"public interface Visitor<TReturn> : {visitorBaseType} {{ }}");
 
-        writer.AppendSummaryComment("Accepts a visitor into this FlatBufferUnion.");
+        writer.AppendSummaryComment("Accepts a visitor into this FlatBufferUnion. Use a value-type Visitor for maximum performance.");
         writer.AppendLine($"public TReturn Accept<TVisitor, TReturn>(TVisitor visitor)");
         writer.AppendLine($"   where TVisitor : {visitorBaseType}");
         using (writer.WithBlock())
@@ -244,23 +270,65 @@ public class ValueUnionSchemaModel : BaseSchemaModel
             writer.AppendLine("switch (disc)");
             using (writer.WithBlock())
             {
+                int index = 1;
                 foreach (var item in components)
                 {
-                    long index = item.value.Value;
-                    writer.AppendLine($"case {index}: return visitor.Visit(this.UncheckedGetItem{item.value.Value}());");
+                    long value = item.value.Value;
+                    writer.AppendLine($"case {value}: return visitor.Visit(this.UncheckedGetItem{index}());");
+                    ++index;
                 }
 
-                writer.AppendLine($"default: throw new {typeof(InvalidOperationException).GetCompilableTypeName()}(\"Unexpected discriminator: \" + disc);");
+                writer.AppendLine($"default:");
+                using (writer.IncreaseIndent())
+                {
+                    writer.AppendLine($"{typeof(FSThrow).GGCTN()}.{nameof(FSThrow.InvalidOperation_InvalidUnionDiscriminator)}<{this.Name}>(disc);");
+                    writer.AppendLine("return default(TReturn);");
+                }
             }
         }
     }
 
-    private void WriteUncheckedGetItemMethod(CodeWriter writer, string resolvedType, EnumVal unionValue, Type? propertyType, bool generateUnsafeItems)
+
+    private void WriteMatchMethod(
+        CodeWriter writer,
+        List<(string resolvedType, EnumVal value, int? size)> components)
+    {
+        List<string> parameters = components.Select(x => $"Func<{x.resolvedType}, TReturn> case{x.value.Key}").ToList();
+
+        writer.AppendSummaryComment(
+            "Performs a match operation on this Union.",
+            "For cases where performance is important, prefer the Accept method to this one.");
+        writer.AppendLine($"public TReturn Match<TReturn>({string.Join(", ", parameters)})");
+        using (writer.WithBlock())
+        {
+            writer.AppendLine("var disc = this.Discriminator;");
+            writer.AppendLine("switch (disc)");
+            using (writer.WithBlock())
+            {
+                int index = 1;
+                foreach (var item in components)
+                {
+                    long value = item.value.Value;
+                    writer.AppendLine($"case {value}: return case{item.value.Key}(this.UncheckedGetItem{index}());");
+                    ++index;
+                }
+
+                writer.AppendLine($"default:");
+                using (writer.IncreaseIndent())
+                {
+                    writer.AppendLine($"{typeof(FSThrow).GGCTN()}.{nameof(FSThrow.InvalidOperation_InvalidUnionDiscriminator)}<{this.Name}>(disc);");
+                    writer.AppendLine("return default(TReturn);");
+                }
+            }
+        }
+    }
+
+    private void WriteUncheckedGetItemMethod(CodeWriter writer, int index, string resolvedType, EnumVal unionValue, Type? propertyType, bool generateUnsafeItems)
     {
         if (propertyType?.IsValueType == true && generateUnsafeItems)
         {
             writer.AppendLine();
-            writer.AppendLine($"private {resolvedType} UncheckedGetItem{unionValue.Value}()");
+            writer.AppendLine($"private {resolvedType} UncheckedGetItem{index}()");
             using (writer.WithBlock())
             {
                 writer.AppendLine($"FlatSharpInternal.AssertSizeOf<{resolvedType}>({propertyType.StructLayoutAttribute!.Size});");
@@ -275,7 +343,7 @@ public class ValueUnionSchemaModel : BaseSchemaModel
         else
         {
             writer.AppendLine();
-            writer.AppendLine($"private {resolvedType} UncheckedGetItem{unionValue.Value}()");
+            writer.AppendLine($"private {resolvedType} UncheckedGetItem{index}()");
             using (writer.WithBlock())
             {
                 writer.AppendLine($"return ({resolvedType})this.value;");
@@ -293,7 +361,7 @@ public class ValueUnionSchemaModel : BaseSchemaModel
                 writer.AppendLine("if (value is null)");
                 using (writer.WithBlock())
                 {
-                    writer.AppendLine("throw new ArgumentNullException(nameof(value));");
+                    writer.AppendLine($"{typeof(FSThrow).GGCTN()}.{nameof(FSThrow.ArgumentNull)}(nameof(value));");
                 }
             }
 
@@ -306,13 +374,24 @@ public class ValueUnionSchemaModel : BaseSchemaModel
                 using (writer.WithBlock())
                 {
                     writer.AppendLine($"var localSpan = new Span<byte>(pByte, {propertyType.StructLayoutAttribute.Size});");
-                    writer.AppendLine($"System.Runtime.InteropServices.MemoryMarshal.Write(localSpan, ref value);");
+                    writer.BeginPreprocessorIf(CSharpHelpers.Net8PreprocessorVariable, "System.Runtime.InteropServices.MemoryMarshal.Write(localSpan, in value);")
+                          .Else("System.Runtime.InteropServices.MemoryMarshal.Write(localSpan, ref value);")
+                          .Flush();
                 }
             }
             else
             {
                 writer.AppendLine($"this.value = value;");
             }
+        }
+    }
+
+    private void WriteImplicitOperator(CodeWriter writer, string resolvedType)
+    {
+        writer.AppendLine($"public static implicit operator {this.Name}({resolvedType} value)");
+        using (writer.WithBlock())
+        {
+            writer.AppendLine($"return new {this.Name}(value);");
         }
     }
 }
