@@ -6,7 +6,7 @@
     <AssemblyName>FlatSharpStrykerTests</AssemblyName>
     <RootNamespace>FlatSharpStrykerTests</RootNamespace>
     <Nullable>annotations</Nullable>
-    <NoWarn>CS1591</NoWarn>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
     
   <ItemGroup>
