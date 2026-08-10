@@ -61,7 +61,7 @@ public class FullTreeTests
         Root root = this.CreateRoot();
         int maxSize = Root.Serializer.GetMaxSize(root);
 
-        Assert.AreEqual(898, maxSize);
+        Assert.AreEqual(914, maxSize);
     }
 
     [TestMethod]

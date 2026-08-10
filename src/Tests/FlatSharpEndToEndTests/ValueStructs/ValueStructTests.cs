@@ -76,7 +76,7 @@ public class ValueStructTestCases
     [TestMethod]
     public void Basics()
     {
-        Assert.AreEqual(36, Unsafe.SizeOf<ValueStruct>());
+        Assert.AreEqual(40, Unsafe.SizeOf<ValueStruct>());
     }
 
     [TestMethod]
@@ -189,8 +189,13 @@ public class ValueStructTestCases
         }
     }
 
+    /// <summary>
+    /// PoorlyAligned's fields end at 5, but its size is padded up to 8 to match its alignment, so
+    /// elements can be laid out sequentially and the unsafe span path applies.
+    /// </summary>
     [TestMethod]
-    public void ValueStructs_UnityNative_PoorlyAligned_Serialize()
+    [DynamicData(nameof(DynamicDataHelper.DeserializationModes), typeof(DynamicDataHelper))]
+    public void ValueStructs_UnityNative_PoorlyAligned_Serialize(FlatBufferDeserializationOption option)
     {
         int count = 10;
 
@@ -200,8 +205,15 @@ public class ValueStructTestCases
             PoorlyAligned = new(Enumerable.Range(0, count).Select(x => new PoorlyAligned { X = x, Y = 1, }).ToArray(), default),
         };
 
-        var ex = Assert.ThrowsException<InvalidOperationException>(() => source.AllocateAndSerialize());
-        Assert.AreEqual("Type 'FlatSharpEndToEndTests.ValueStructs.PoorlyAligned' does not support Unsafe Span operations because the size (5) is not a multiple of the alignment (4).", ex.Message);
+        byte[] data = source.AllocateAndSerialize();
+
+        var parsed = UnityVectors_List.Serializer.Parse(data, option);
+
+        for (int i = 0; i < count; ++i)
+        {
+            Assert.AreEqual(source.PoorlyAligned.Value[i].X, parsed.PoorlyAligned[i].X);
+            Assert.AreEqual(source.PoorlyAligned.Value[i].Y, parsed.PoorlyAligned[i].Y);
+        }
     }
 
     [TestMethod]
@@ -251,15 +263,13 @@ public class ValueStructTestCases
         GCHandle handle = GCHandle.Alloc(data);
         try
         {
-            var ex = Assert.ThrowsException<InvalidOperationException>(() =>
-            {
-                var parsed = UnityVectors_Native.Serializer.Parse(new MemoryInputBuffer(data, true), option);
-                float f = parsed.PoorlyAligned.Value[0].X;
-            });
+            var parsed = UnityVectors_Native.Serializer.Parse(new MemoryInputBuffer(data, true), option);
 
-            Assert.AreEqual(
-                "Type 'FlatSharpEndToEndTests.ValueStructs.PoorlyAligned' does not support Unsafe Span operations because the size (5) is not a multiple of the alignment (4).",
-                ex.Message);
+            for (int i = 0; i < count; ++i)
+            {
+                Assert.AreEqual(source.PoorlyAligned[i].X, parsed.PoorlyAligned.Value[i].X);
+                Assert.AreEqual(source.PoorlyAligned[i].Y, parsed.PoorlyAligned.Value[i].Y);
+            }
         }
         finally
         {

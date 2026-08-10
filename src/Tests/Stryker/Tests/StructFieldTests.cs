@@ -61,14 +61,15 @@ public class StructFieldTests
                     4, 0,               // offset of field 0
                     0, 0,               // padding
 
-                    242, 255, 255, 255, // soffset to vtable
+                    240, 255, 255, 255, // soffset to vtable
                     4, 0, 0, 0,         // valuestruct.a
                     3, 0,               // valuestruct.b, padding
                     1, 0,               // valuestruct.c[0]
                     2, 0,               // valuestruct.c[1]
+                    0, 0,               // valuestruct trailing padding
 
                     8, 0,               // vtable length
-                    14, 0,              // table length
+                    16, 0,              // table length
                     0, 0,               // field 0 (not present)
                     4, 0,               // field 1
                 };
@@ -280,7 +281,7 @@ public class StructFieldTests
             4, 0,               // offset of field 0
             0, 0,               // padding
 
-            226, 255, 255, 255,  // soffset to vtable
+            220, 255, 255, 255,  // soffset to vtable
 
             12, 0, 0, 0,        // refStruct.A (ulong)
             0, 0, 0, 0,
@@ -290,9 +291,11 @@ public class StructFieldTests
             3, 0,               // valuestruct.b, padding
             1, 0,               // valuestruct.c[0]
             2, 0,               // valuestruct.c[1]
+            0, 0,               // valuestruct trailing padding
+            0, 0, 0, 0,         // refStruct trailing padding
 
             6, 0,               // vtable length
-            30, 0,              // table length
+            36, 0,              // table length
             4, 0,               // field 0
         };
 

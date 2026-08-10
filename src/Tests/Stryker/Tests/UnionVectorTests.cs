@@ -281,7 +281,7 @@ public class UnionVectorTests
             16, 0, 0, 0,
             40, 0, 0, 0,
             52, 0, 0, 0,
-            76, 0, 0, 0,
+            80, 0, 0, 0,
 
             244, 255, 255, 255, // key soffset to vtable
             0, 0, 0, 0,         // apple
@@ -303,6 +303,7 @@ public class UnionVectorTests
             0, 0, 0, 0,
             1, 0, 0, 0,
             5, 6, 7, 8,
+            0, 0, 0, 0,
             0, 0, 0, 0,
             0, 0, 0, 0,
             0, 0, 0, 0,
