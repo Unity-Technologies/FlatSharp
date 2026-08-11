@@ -256,6 +256,9 @@ public class StructTypeModel : RuntimeTypeModel
             this.inlineSize += length;
         }
 
+        // FlatBuffers spec requires the size to be a multiple of the alignment (equivalent to flatc PadLastField).
+        this.inlineSize += SerializationHelpers.GetAlignmentError(this.inlineSize, this.maxAlignment);
+
         foreach (StructMemberModel member in this.memberTypes)
         {
             ITypeModel memberModel = member.ItemTypeModel;

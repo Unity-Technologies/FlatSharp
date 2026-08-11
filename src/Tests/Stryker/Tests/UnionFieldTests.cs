@@ -343,7 +343,8 @@ public class UnionFieldTests
             0, 0,               // D[0,1]
             0, 0, 0, 0,         // ValueStruct (default)
             0, 0, 0, 0,
-            0, 0
+            0, 0, 0, 0,         // ValueStruct trailing padding
+            0, 0, 0, 0          // RefStruct trailing padding
         };
 
         return root;
@@ -396,6 +397,7 @@ public class UnionFieldTests
             4, 0,
             1, 0,
             2, 0,
+            0, 0,               // ValueStruct trailing padding
         };
 
         return root;

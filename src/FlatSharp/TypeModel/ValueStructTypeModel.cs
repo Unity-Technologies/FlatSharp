@@ -182,7 +182,7 @@ public class ValueStructTypeModel : RuntimeTypeModel
         {
             body = $@"
                 {slice}
-                
+
                 {StrykerSuppressor.SuppressNextLine("boolean")}
                 if ({StrykerSuppressor.BitConverterTypeName}.IsLittleEndian)
                 {{
@@ -307,6 +307,9 @@ public class ValueStructTypeModel : RuntimeTypeModel
 
             this.inlineSize += propertyModel.PhysicalLayout[0].InlineSize;
         }
+
+        // FlatBuffers spec requires the size to be a multiple of the alignment (equivalent to flatc PadLastField).
+        this.inlineSize += SerializationHelpers.GetAlignmentError(this.inlineSize, this.maxAlignment);
 
         this.isExternal = this.ClrType.GetCustomAttribute<ExternalDefinitionAttribute>() is not null;
         this.CanMarshalOnSerialize = false;

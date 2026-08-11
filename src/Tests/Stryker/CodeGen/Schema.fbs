@@ -16,7 +16,7 @@ enum Fruit : int
     Pear
 }
 
-/// Poorly Aligned. Total Size = 10, Alignment = 4
+/// Poorly Aligned. Fields end at 10, Total Size = 12, Alignment = 4
 struct ValueStruct (fs_valueStruct)
 {
     /// Position 0, Length 4, Alignment 4
@@ -29,7 +29,7 @@ struct ValueStruct (fs_valueStruct)
     c : [ short : 2 ] (fs_unsafeStructVector);
 }
 
-/// Poorly aligned. Total Size == 26, Alignemnt = 8
+/// Poorly aligned. Fields end at 28, Total Size == 32, Alignemnt = 8
 struct RefStruct
 {
     /// Position 0, Length 8, Alignment 8, WriteThrough = true
@@ -44,7 +44,7 @@ struct RefStruct
     /// Position 14, length 2, Alignment 1, WriteThrough = false
     d : [ byte : 2 ];
 
-    /// Position 16, Length 10, Alignment 4, WriteThrough = false
+    /// Position 16, Length 12, Alignment 4, WriteThrough = false
     e : ValueStruct;
 }
 
