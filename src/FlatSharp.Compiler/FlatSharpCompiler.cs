@@ -684,6 +684,27 @@ public class FlatSharpCompiler
         if (options.UnityAssemblyPath is not null)
         {
             references.Add(Assembly.LoadFrom(options.UnityAssemblyPath));
+
+            string unityAssemblyPath = Path.GetFullPath(options.UnityAssemblyPath);
+            string? unityAssemblyDirectory = Path.GetDirectoryName(unityAssemblyPath);
+            if (unityAssemblyDirectory is not null)
+            {
+                foreach (string modulePath in Directory.GetFiles(unityAssemblyDirectory, "UnityEngine.*Module.dll"))
+                {
+                    if (string.Equals(Path.GetFullPath(modulePath), unityAssemblyPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        references.Add(Assembly.LoadFrom(modulePath));
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
         }
         else
         {
